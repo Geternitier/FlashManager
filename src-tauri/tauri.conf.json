@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "FlashManager — 本地服务小屋",
+        "title": "FlashManager",
         "width": 1240,
         "height": 800,
         "minWidth": 980,

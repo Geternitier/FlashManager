@@ -2829,7 +2829,7 @@ export default function App() {
               <div className="fm-setting-row">
                 <div className="fm-setting-copy">
                   <b>萌度</b>
-                  <small>装饰强度；克制模式会收起情绪贴纸，不影响功能。</small>
+                  <small>克制关闭角色漂浮、气泡与星光；标准保留漂浮与气泡；满开额外闪烁星芒与头像光晕。卡片、抽屉与悬停等操作动效不受影响。</small>
                 </div>
                 <div className="fm-segmented">
                   {(["0", "1", "2"] as Moe[]).map((level) => (
