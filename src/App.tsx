@@ -757,7 +757,9 @@ export default function App() {
         ? "小屋还空着。把第一个服务请进来，或者把文件夹交给小闪。"
         : errorCount > 0
           ? `${counts.running} 个小伙伴在认真工作，${errorCount} 个需要你摸摸。`
-          : `${counts.running} 个小伙伴都在乖乖运行，今天很稳。`;
+          : counts.running === 0
+            ? "小屋现在很安静，服务都停着；需要时再叫醒它们。"
+            : `${counts.running} 个小伙伴都在乖乖运行，今天很稳。`;
 
   const activeLogs = filteredLogs;
 
