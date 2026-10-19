@@ -1,0 +1,42 @@
+[package]
+name = "flash-manager"
+version = "0.1.0"
+description = "High-performance Windows Local Software & Service Manager"
+authors = ["Char"]
+edition = "2021"
+
+[lib]
+name = "flash_manager_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "flash-manager"
+path = "src/main.rs"
+
+[[bin]]
+name = "flash-manager-cli"
+path = "src/cli.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png", "custom-protocol"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["process", "io-util", "sync", "time", "rt-multi-thread", "net", "macros", "fs"] }
+sysinfo = "0.33"
+encoding_rs = "0.8"
+chrono = { version = "0.4", features = ["serde"] }
+axum = { version = "0.7", features = ["json", "query"] }
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.56"
+windows-sys = { version = "0.59", features = [
+  "Win32_Foundation",
+  "Win32_System_JobObjects",
+  "Win32_System_Threading",
+  "Win32_Security",
+  "Win32_Security_Cryptography",
+  "Win32_UI_WindowsAndMessaging"
+] }

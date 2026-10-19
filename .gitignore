@@ -1,0 +1,34 @@
+# 依赖与前端构建产物
+node_modules/
+dist/
+
+# Rust / Tauri 编译产物
+src-tauri/target/
+*.exe
+*.pdb
+*.dll
+*.lib
+*.exp
+*.rlib
+
+# 文档与界面原型
+*.md
+ui-preview.html
+docs/
+
+# 本地编辑器与 Agent 资料
+.cursor/
+
+# 运行时密钥与错误输出
+config/agent.token
+flashmanager-error.txt
+*.log
+
+# 系统杂项
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# 本机沙箱 / 临时验证文件
+.dsh-acl-recovery/
+.dsh-write-test.txt

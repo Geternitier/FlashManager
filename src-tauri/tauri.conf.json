@@ -1,0 +1,32 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "FlashManager",
+  "version": "0.1.0",
+  "identifier": "com.char.flashmanager",
+  "build": {
+    "beforeDevCommand": ".\\node_modules\\.bin\\vite.cmd",
+    "beforeBuildCommand": ".\\node_modules\\.bin\\vite.cmd build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "FlashManager — 本地软件与服务管理平台",
+        "width": 1240,
+        "height": 800,
+        "minWidth": 980,
+        "minHeight": 640,
+        "decorations": true,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all"
+  }
+}
