@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "High-performance Windows Local Software & Service Manager"
 authors = ["Char"]
 edition = "2021"
+default-run = "flash-manager"
 
 [lib]
 name = "flash_manager_lib"
