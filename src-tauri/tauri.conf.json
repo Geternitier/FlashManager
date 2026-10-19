@@ -6,6 +6,7 @@
   "build": {
     "beforeDevCommand": ".\\node_modules\\.bin\\vite.cmd",
     "beforeBuildCommand": ".\\node_modules\\.bin\\vite.cmd build",
+    "devUrl": "http://localhost:1420",
     "frontendDist": "../dist"
   },
   "app": {
