@@ -67,7 +67,6 @@ import type {
 type FilterKey = "all" | "running" | "error" | "stopped";
 type DrawerTab = "overview" | "logs" | "config" | "diagnose";
 type Theme = "day" | "night";
-type Moe = "0" | "1" | "2";
 type ToastKind = "success" | "info" | "error";
 type ModalKind = "service" | "detect" | "settings" | "shortcuts" | null;
 type MascotMood = "idle" | "happy" | "sleep" | "worry";
@@ -175,8 +174,6 @@ const TYPE_DEFAULTS: Record<ServiceType, { executable: string; encoding: string 
   exe: { executable: "D:/Tools/app.exe", encoding: "utf-8" },
   script: { executable: "powershell.exe", encoding: "gbk" },
 };
-
-const MOE_LABELS: Record<Moe, string> = { "0": "克制", "1": "标准", "2": "满开" };
 
 function formatDuration(seconds: number): string {
   if (!seconds || seconds <= 0) return "—";
@@ -443,7 +440,6 @@ export default function App() {
   const [view, setView] = useState<"grid" | "list">("grid");
 
   const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem("fm-theme") === "night" ? "night" : "day"));
-  const [moe, setMoeState] = useState<Moe>(() => (["0", "1", "2"].includes(localStorage.getItem("fm-moe") ?? "") ? (localStorage.getItem("fm-moe") as Moe) : "1"));
   const [reduceMotion, setReduceMotion] = useState(() => localStorage.getItem("fm-motion") === "1");
 
   const [busy, setBusy] = useState<Record<string, string>>({});
@@ -537,12 +533,11 @@ export default function App() {
   useEffect(() => {
     try {
       localStorage.setItem("fm-theme", theme);
-      localStorage.setItem("fm-moe", moe);
       localStorage.setItem("fm-motion", reduceMotion ? "1" : "0");
     } catch {
       // Local storage can be unavailable in hardened webviews.
     }
-  }, [theme, moe, reduceMotion]);
+  }, [theme, reduceMotion]);
 
   useEffect(() => {
     if ("matchMedia" in window && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
@@ -1150,21 +1145,6 @@ export default function App() {
     setMenu({ left, top, header, note, items });
   };
 
-  const openMoeMenu = (event: ReactMouseEvent<HTMLElement>) => {
-    openMenu(
-      event,
-      (["0", "1", "2"] as Moe[]).map((level) => ({
-        label: MOE_LABELS[level],
-        note: level === "1" ? "推荐" : undefined,
-        checked: moe === level,
-        icon: <Sparkles className="i" />,
-        onClick: () => setMoeState(level),
-      })),
-      "萌度 / Sweetness",
-      "萌度只改变装饰与动效，不改变任何信息与操作。"
-    );
-  };
-
   const openBatchMenu = (event: ReactMouseEvent<HTMLElement>) => {
     const scopeLabel = scopeForBatch ?? "全部服务";
     const scoped = services.filter((service) => scopeForBatch === null || service.group === scopeForBatch);
@@ -1266,7 +1246,7 @@ export default function App() {
     { label: "全部启动", hint: "启动所有未运行服务", icon: <Play className="i" />, run: () => void startAll() },
     { label: "全部停止", hint: "先确认影响范围", icon: <Square className="i" />, run: askBatchStop },
     { label: "重启异常服务", hint: "只处理需要关心的", icon: <RefreshCw className="i" />, run: () => void restartErrors() },
-    { label: "偏好设置", hint: "主题 / 萌度 / 动效", icon: <Settings className="i" />, run: () => setModal("settings") },
+    { label: "偏好设置", hint: "主题 / 动效", icon: <Settings className="i" />, run: () => setModal("settings") },
     { label: "快捷键", hint: "键盘地图", icon: <Keyboard className="i" />, run: () => setModal("shortcuts") },
     { label: "切换樱昼 / 樱夜", hint: "外观", icon: theme === "day" ? <Moon className="i" /> : <Sun className="i" />, run: () => setTheme(theme === "day" ? "night" : "day") },
   ];
@@ -1314,7 +1294,7 @@ export default function App() {
       ref={appRef}
       className={`fm-app ${reduceMotion ? "reduce-motion" : ""}`}
       data-theme={theme}
-      data-moe={moe}
+      data-moe="2"
     >
       <header className="fm-topbar">
         <button className="fm-brand" onClick={resetFilters} aria-label="回到总览">
@@ -1337,12 +1317,6 @@ export default function App() {
           <kbd>K</kbd>
         </button>
         <div className="fm-top-actions">
-          <button className="fm-moe" onClick={openMoeMenu} aria-label="调整萌度">
-            <Sparkles className="i" />
-            <span>
-              萌度 · <b>{MOE_LABELS[moe]}</b>
-            </span>
-          </button>
           <button className="fm-iconbtn" onClick={() => setTheme(theme === "day" ? "night" : "day")} aria-label="切换樱昼 / 樱夜">
             <Sun className="i fm-icon-sun" />
             <Moon className="i fm-icon-moon" />
@@ -2828,19 +2802,6 @@ export default function App() {
               </div>
               <div className="fm-setting-row">
                 <div className="fm-setting-copy">
-                  <b>萌度</b>
-                  <small>克制关闭角色漂浮、气泡与星光；标准保留漂浮与气泡；满开额外闪烁星芒与头像光晕。卡片、抽屉与悬停等操作动效不受影响。</small>
-                </div>
-                <div className="fm-segmented">
-                  {(["0", "1", "2"] as Moe[]).map((level) => (
-                    <button key={level} className={moe === level ? "is-active" : ""} onClick={() => setMoeState(level)}>
-                      {MOE_LABELS[level]}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="fm-setting-row">
-                <div className="fm-setting-copy">
                   <b>减少动效</b>
                   <small>关闭浮动与闪烁；系统开启“减少动态效果”时会自动生效。</small>
                 </div>
@@ -2861,7 +2822,7 @@ export default function App() {
             </div>
           </div>
           <div className="fm-modal-foot">
-            <span className="fm-modal-foot-note">主题、萌度与动效偏好会保存在本机 localStorage</span>
+            <span className="fm-modal-foot-note">主题与动效偏好会保存在本机 localStorage</span>
             <button className="fm-btn fm-btn-primary" onClick={() => setModal(null)}>
               完成
             </button>
