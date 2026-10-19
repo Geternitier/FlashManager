@@ -455,7 +455,7 @@ export default function App() {
   const [formError, setFormError] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const [detectPath, setDetectPath] = useState("D:/Develop/Deepseek/FlashManager/demo-services");
+  const [detectPath, setDetectPath] = useState("");
   const [detectGroup, setDetectGroup] = useState("AI Agent 项目");
   const [detectBusy, setDetectBusy] = useState(false);
   const [detectError, setDetectError] = useState("");
@@ -2727,10 +2727,6 @@ export default function App() {
                     placeholder="D:/Develop/Deepseek/my-service"
                     autoComplete="off"
                   />
-                  <button type="button" className="fm-btn fm-btn-soft" onClick={() => setDetectPath("D:/Develop/Deepseek/FlashManager/demo-services")}>
-                    <Folder className="i" />
-                    示例
-                  </button>
                 </div>
                 <span className="fm-field-hint">会优先读取 .flashservice.json；没有的话按入口文件与 .venv 推断。</span>
               </div>

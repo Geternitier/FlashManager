@@ -15,12 +15,16 @@ src-tauri/target/
 *.md
 ui-preview.html
 docs/
+design/
+
+# 本地演示服务（不参与构建）
+demo-services/
 
 # 本地编辑器与 Agent 资料
 .cursor/
 
-# 运行时密钥与错误输出
-config/agent.token
+# 本地运行配置与密钥
+config/
 flashmanager-error.txt
 *.log
 
