@@ -337,6 +337,11 @@ fn setup_system_tray(app: &AppHandle) -> tauri::Result<()> {
 
     let mut tray_builder = TrayIconBuilder::new()
         .menu(&menu)
+        // Tauri shows the menu on left-button-up by default. TrackPopupMenu then
+        // starts after the button is already released, so Windows leaves the
+        // cursor as the blue app-starting circle until the next click.
+        // Left click only restores the window; right click opens this menu.
+        .show_menu_on_left_click(false)
         .tooltip("FlashManager — 本地软件与服务管理平台 (后台轻量运行中)")
         .on_menu_event(|app_handle, event| match event.id.as_ref() {
             "open" => {
