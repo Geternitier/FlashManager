@@ -2,6 +2,7 @@ pub mod agent_api;
 pub mod detector;
 pub mod job_object;
 pub mod models;
+pub mod proxy;
 pub mod supervisor;
 
 use std::path::{Path, PathBuf};
@@ -11,7 +12,10 @@ use std::time::Duration;
 
 use crate::agent_api::spawn_agent_http_server;
 use crate::detector::auto_detect_service;
-use crate::models::{DashboardSnapshot, DiagnoseReport, LogPage, ServiceConfig, ServiceView};
+use crate::models::{
+    DashboardSnapshot, DiagnoseReport, LogPage, ProxyApplyReport, ProxyPreview, ProxyRule,
+    ServiceConfig, ServiceView,
+};
 use crate::supervisor::SupervisorHandle;
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
@@ -292,6 +296,43 @@ fn open_frontend_url(url: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn list_proxy_rules(sup: State<'_, SupervisorHandle>) -> Vec<ProxyRule> {
+    sup.list_proxy_rules()
+}
+
+#[tauri::command]
+fn save_proxy_rule(
+    sup: State<'_, SupervisorHandle>,
+    rule: ProxyRule,
+) -> Result<ProxyRule, String> {
+    sup.upsert_proxy_rule(rule)
+}
+
+#[tauri::command]
+fn delete_proxy_rule(
+    sup: State<'_, SupervisorHandle>,
+    id: String,
+) -> Result<Vec<ProxyRule>, String> {
+    sup.delete_proxy_rule(&id)
+}
+
+#[tauri::command]
+fn preview_proxy_rules(
+    sup: State<'_, SupervisorHandle>,
+    gateway_id: String,
+) -> Result<ProxyPreview, String> {
+    sup.preview_proxy(&gateway_id)
+}
+
+#[tauri::command]
+fn apply_proxy_rules(
+    sup: State<'_, SupervisorHandle>,
+    gateway_id: String,
+) -> Result<ProxyApplyReport, String> {
+    sup.apply_proxy(&gateway_id)
+}
+
+#[tauri::command]
 fn hibernate_to_tray(app: AppHandle) -> Result<(), String> {
     if let Some(win) = app.get_webview_window("main") {
         let _ = win.destroy();
@@ -425,6 +466,11 @@ pub fn run() {
             auto_detect_and_register,
             diagnose_service_cmd,
             open_frontend_url,
+            list_proxy_rules,
+            save_proxy_rule,
+            delete_proxy_rule,
+            preview_proxy_rules,
+            apply_proxy_rules,
             hibernate_to_tray
         ])
         .build(tauri::generate_context!())

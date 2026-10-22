@@ -34,6 +34,7 @@ import {
   Sparkles,
   Square,
   Sun,
+  Route,
   Terminal,
   Trash2,
   X,
@@ -54,11 +55,13 @@ import {
   startService,
   stopService,
 } from "./api";
+import ProxyPage, { ServiceProxyNote } from "./ProxyPage";
 import type {
   DashboardSnapshot,
   DiagnoseReport,
   LogEntry,
   PlatformMetrics,
+  ProxyOpenRequest,
   ServiceConfig,
   ServiceType,
   ServiceView,
@@ -131,7 +134,7 @@ const GROUP_COLORS: Record<string, string> = {
 };
 
 const SORT_OPTIONS = [
-  { key: "status", label: "按状态" },
+  { key: "recent", label: "按最近启动" },
   { key: "name", label: "按名称" },
   { key: "cpu", label: "按占用" },
 ] as const;
@@ -436,8 +439,10 @@ export default function App() {
   const [group, setGroup] = useState("全部服务");
   const [type, setType] = useState<"all" | ServiceType>("all");
   const [search, setSearch] = useState("");
-  const [sort, setSort] = useState<(typeof SORT_OPTIONS)[number]["key"]>("status");
+  const [sort, setSort] = useState<(typeof SORT_OPTIONS)[number]["key"]>("recent");
   const [view, setView] = useState<"grid" | "list">("grid");
+  const [page, setPage] = useState<"services" | "proxies">("services");
+  const [proxyRequest, setProxyRequest] = useState<ProxyOpenRequest | null>(null);
 
   const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem("fm-theme") === "night" ? "night" : "day"));
   const [reduceMotion, setReduceMotion] = useState(() => localStorage.getItem("fm-motion") === "1");
@@ -697,7 +702,6 @@ export default function App() {
 
   const visibleServices = useMemo(() => {
     const query = search.trim().toLowerCase();
-    const rank: Record<string, number> = { error: 0, running: 1, stopped: 2 };
     const filtered = services.filter((service) => {
       if (filter === "running" && service.status !== "running") return false;
       if (filter === "error" && service.status !== "error") return false;
@@ -724,7 +728,7 @@ export default function App() {
     filtered.sort((a, b) => {
       if (sort === "name") return a.name.localeCompare(b.name, "zh-CN");
       if (sort === "cpu") return b.cpuUsage - a.cpuUsage;
-      return (rank[a.status] ?? 3) - (rank[b.status] ?? 3) || a.name.localeCompare(b.name, "zh-CN");
+      return (b.lastStartedAt ?? 0) - (a.lastStartedAt ?? 0) || a.name.localeCompare(b.name, "zh-CN");
     });
     return filtered;
   }, [services, filter, group, type, search, sort]);
@@ -993,13 +997,29 @@ export default function App() {
     void copyText(text || "（没有可见日志）", "可见日志已复制");
   };
 
-  const openAdd = () => {
+  const openAdd = (preset?: ServiceType) => {
+    const serviceType = preset ?? "python";
+    const defaults = TYPE_DEFAULTS[serviceType];
     setEditingId(null);
-    setForm({ ...EMPTY_FORM, group: group === "全部服务" ? "AI Agent 项目" : group });
-    setFormArgs("");
+    setForm({
+      ...EMPTY_FORM,
+      group: serviceType === "nginx" && (group === "全部服务" || page === "proxies") ? "网关与中间件" : group === "全部服务" ? "AI Agent 项目" : group,
+      serviceType,
+      executable: defaults.executable,
+      encoding: defaults.encoding,
+      cwd: serviceType === "nginx" ? "D:/Develop/Windows/Nginx" : "",
+      autoRestart: serviceType === "nginx" ? false : EMPTY_FORM.autoRestart,
+    });
+    setFormArgs(serviceType === "nginx" ? "-c conf/nginx.conf" : "");
     setFormError("");
     setModal("service");
     setMenu(null);
+  };
+
+  const openProxies = (request: ProxyOpenRequest | null = null) => {
+    setProxyRequest(request);
+    setPage("proxies");
+    setDrawerOpen(false);
   };
 
   const openEdit = (service: ServiceView) => {
@@ -1287,7 +1307,7 @@ export default function App() {
     { key: "stopped", label: "已停止", count: counts.stopped },
   ];
 
-  const sortLabel = SORT_OPTIONS.find((option) => option.key === sort)?.label ?? "按状态";
+  const sortLabel = SORT_OPTIONS.find((option) => option.key === sort)?.label ?? "按最近启动";
 
   return (
     <div
@@ -1351,8 +1371,9 @@ export default function App() {
           <nav className="fm-nav" aria-label="服务视图">
             <span className="fm-nav-title">小屋</span>
             <button
-              className={group === "全部服务" && filter === "all" ? "is-active" : ""}
+              className={page === "services" && group === "全部服务" && filter === "all" ? "is-active" : ""}
               onClick={() => {
+                setPage("services");
                 setFilter("all");
                 setGroup("全部服务");
                 setType("all");
@@ -1363,8 +1384,9 @@ export default function App() {
               <small>{counts.total}</small>
             </button>
             <button
-              className={filter === "running" ? "is-active" : ""}
+              className={page === "services" && filter === "running" ? "is-active" : ""}
               onClick={() => {
+                setPage("services");
                 setFilter("running");
                 setGroup("全部服务");
                 setType("all");
@@ -1375,8 +1397,9 @@ export default function App() {
               <small>{counts.running}</small>
             </button>
             <button
-              className={filter === "error" ? "is-active" : ""}
+              className={page === "services" && filter === "error" ? "is-active" : ""}
               onClick={() => {
+                setPage("services");
                 setFilter("error");
                 setGroup("全部服务");
                 setType("all");
@@ -1387,8 +1410,9 @@ export default function App() {
               <small className="is-danger">{counts.error}</small>
             </button>
             <button
-              className={filter === "stopped" ? "is-active" : ""}
+              className={page === "services" && filter === "stopped" ? "is-active" : ""}
               onClick={() => {
+                setPage("services");
                 setFilter("stopped");
                 setGroup("全部服务");
                 setType("all");
@@ -1397,6 +1421,10 @@ export default function App() {
               <Pause className="i" />
               <span>已停止</span>
               <small>{counts.stopped}</small>
+            </button>
+            <button className={page === "proxies" ? "is-active" : ""} onClick={() => openProxies()}>
+              <Route className="i" />
+              <span>反向代理</span>
             </button>
           </nav>
 
@@ -1408,8 +1436,9 @@ export default function App() {
               return (
                 <button
                   key={name}
-                  className={`fm-group-btn ${active ? "is-active" : ""}`}
+                  className={`fm-group-btn ${page === "services" && active ? "is-active" : ""}`}
                   onClick={() => {
+                    setPage("services");
                     setGroup(name);
                     setFilter("all");
                     setType("all");
@@ -1435,8 +1464,9 @@ export default function App() {
             </summary>
             <div className="fm-type-list">
               <button
-                className={type === "all" ? "is-active" : ""}
+                className={page === "services" && type === "all" ? "is-active" : ""}
                 onClick={() => {
+                  setPage("services");
                   setType("all");
                   setFilter("all");
                   setGroup("全部服务");
@@ -1453,8 +1483,9 @@ export default function App() {
                 return (
                   <button
                     key={serviceType}
-                    className={type === serviceType ? "is-active" : ""}
+                    className={page === "services" && type === serviceType ? "is-active" : ""}
                     onClick={() => {
+                      setPage("services");
                       setType(serviceType);
                       setFilter("all");
                       setGroup("全部服务");
@@ -1498,6 +1529,16 @@ export default function App() {
 
         <main className="fm-main">
           <div className="fm-scroll">
+            {page === "proxies" ? (
+              <ProxyPage
+                services={services}
+                request={proxyRequest}
+                onRequestConsumed={() => setProxyRequest(null)}
+                onAddNginx={() => openAdd("nginx")}
+                onToast={pushToast}
+              />
+            ) : (
+            <>
             <section className="fm-hero">
               <div className="fm-hero-copy">
                 <span className="fm-eyebrow">{dateLabel(now)}</span>
@@ -1517,7 +1558,7 @@ export default function App() {
                     批量操作
                     <ChevronDown className="i fm-chev" />
                   </button>
-                  <button className="fm-btn fm-btn-primary" onClick={openAdd}>
+                  <button className="fm-btn fm-btn-primary" onClick={() => openAdd()}>
                     <Plus className="i" />
                     添加服务
                   </button>
@@ -1730,7 +1771,7 @@ export default function App() {
                   <h3>小屋里还空空的…</h3>
                   <p>把第一个本地服务请进来吧。你可以手动填写，也可以直接把项目文件夹交给小闪，让它自己识别。</p>
                   <div className="fm-empty-actions">
-                    <button className="fm-btn fm-btn-primary" onClick={openAdd}>
+                    <button className="fm-btn fm-btn-primary" onClick={() => openAdd()}>
                       <Plus className="i" />
                       添加第一个服务
                     </button>
@@ -1905,6 +1946,8 @@ export default function App() {
                 最后更新 {timeAgo(lastUpdated, now.getTime())}
               </span>
             </div>
+            </>
+            )}
           </div>
         </main>
 
@@ -2093,6 +2136,7 @@ export default function App() {
                         </div>
                       </div>
                     </div>
+                    <ServiceProxyNote service={activeService} services={services} onOpen={openProxies} />
                     {activeLogs.length ? (
                       <div className="fm-detail-section">
                         <h4>

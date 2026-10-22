@@ -1,8 +1,10 @@
 use crate::job_object::{kill_process_tree_fallback, ProcessJob};
 use crate::models::{
     DashboardSnapshot, DiagnoseReport, LogEntry, LogPage, PersistentConfigFile, PlatformMetrics,
-    ServiceConfig, ServiceStatus, ServiceType, ServiceView,
+    ProxyApplyReport, ProxyPreview, ProxyRule, ServiceConfig, ServiceStatus, ServiceType,
+    ServiceView,
 };
+use crate::proxy::{self, RenderRoute};
 use chrono::Local;
 use encoding_rs::{GBK, UTF_8};
 use std::collections::{HashMap, VecDeque};
@@ -24,6 +26,7 @@ pub struct ManagedServiceInstance {
     pub status: ServiceStatus,
     pub pid: Option<u32>,
     pub started_at: Option<Instant>,
+    pub last_started_ms: Option<u64>,
     pub cpu_usage: f32,
     pub memory_mb: f32,
     pub port_active: bool,
@@ -42,6 +45,7 @@ impl ManagedServiceInstance {
             status: ServiceStatus::Stopped,
             pid: None,
             started_at: None,
+            last_started_ms: None,
             cpu_usage: 0.0,
             memory_mb: 0.0,
             port_active: false,
@@ -100,6 +104,7 @@ impl ManagedServiceInstance {
             memory_mb: self.memory_mb,
             uptime_seconds,
             port_active: self.port_active,
+            last_started_at: self.last_started_ms,
             logs: Vec::new(),
         }
     }
@@ -111,6 +116,8 @@ pub struct SupervisorState {
     pub config_dir: PathBuf,
     pub services_d_dir: PathBuf,
     pub config_file: PathBuf,
+    pub proxy_file: PathBuf,
+    pub proxy_rules: Vec<ProxyRule>,
 }
 
 #[derive(Clone)]
@@ -131,6 +138,8 @@ impl SupervisorHandle {
             ));
         }
         let config_file = config_dir.join("services.json");
+        let proxy_file = config_dir.join("proxies.json");
+        let proxy_rules = proxy::load_rules(&proxy_file);
         let token = Arc::new(load_or_create_token(&config_dir));
 
         let initial_configs = load_or_init_configs(&config_file, &base_dir);
@@ -145,6 +154,8 @@ impl SupervisorHandle {
             config_dir,
             services_d_dir,
             config_file,
+            proxy_file,
+            proxy_rules,
         };
 
         let handle = Self {
@@ -543,6 +554,7 @@ impl SupervisorHandle {
             svc.status = ServiceStatus::Running;
             svc.pid = if pid > 0 { Some(pid) } else { None };
             svc.started_at = Some(Instant::now());
+            svc.last_started_ms = Some(unix_millis());
             svc.job = job_arc;
             svc.push_log(
                 "SYS",
@@ -833,6 +845,233 @@ impl SupervisorHandle {
             svc.push_log(level, text);
         }
     }
+
+    pub fn list_proxy_rules(&self) -> Vec<ProxyRule> {
+        self.inner.lock().unwrap().proxy_rules.clone()
+    }
+
+    pub fn upsert_proxy_rule(&self, rule: ProxyRule) -> Result<ProxyRule, String> {
+        let rule = proxy::normalize_rule(&rule)?;
+        let (stored, next, path) = {
+            let guard = self.inner.lock().unwrap();
+            let mut stored = rule;
+            if stored.id.is_empty() {
+                stored.id = new_proxy_id(&guard.proxy_rules);
+            }
+            let mut next = guard.proxy_rules.clone();
+            if let Some(existing) = next.iter_mut().find(|item| item.id == stored.id) {
+                *existing = stored.clone();
+            } else {
+                next.push(stored.clone());
+            }
+            proxy::ensure_unique(&next)?;
+            check_proxy_target(&stored, &guard.services)?;
+            (stored, next, guard.proxy_file.clone())
+        };
+        proxy::save_rules(&path, &next)?;
+        self.inner.lock().unwrap().proxy_rules = next;
+        Ok(stored)
+    }
+
+    pub fn delete_proxy_rule(&self, id: &str) -> Result<Vec<ProxyRule>, String> {
+        let (next, path) = {
+            let guard = self.inner.lock().unwrap();
+            if !guard.proxy_rules.iter().any(|rule| rule.id == id) {
+                return Err("找不到这条反代规则。".to_string());
+            }
+            let next: Vec<ProxyRule> = guard
+                .proxy_rules
+                .iter()
+                .filter(|rule| rule.id != id)
+                .cloned()
+                .collect();
+            (next, guard.proxy_file.clone())
+        };
+        proxy::save_rules(&path, &next)?;
+        self.inner.lock().unwrap().proxy_rules = next.clone();
+        Ok(next)
+    }
+
+    pub fn preview_proxy(&self, gateway_id: &str) -> Result<ProxyPreview, String> {
+        let prepared = self.prepare_proxy(gateway_id)?;
+        Ok(ProxyPreview {
+            gateway_id: gateway_id.to_string(),
+            config_path: prepared.config_path,
+            conf: prepared.rendered,
+            warnings: prepared.warnings,
+            include_ready: prepared.include_ready,
+        })
+    }
+
+    pub fn apply_proxy(&self, gateway_id: &str) -> Result<ProxyApplyReport, String> {
+        let prepared = self.prepare_proxy(gateway_id)?;
+        let installed = match proxy::install_routes(
+            &prepared.layout,
+            &prepared.rendered,
+            &prepared.next_conf,
+            prepared.running,
+        ) {
+            Ok(installed) => installed,
+            Err(err) => {
+                self.append_log(
+                    gateway_id,
+                    "ERR",
+                    format!("[FlashManager] 反代应用失败: {}", err),
+                );
+                return Err(err);
+            }
+        };
+        let summary = if installed.reloaded {
+            "配置已写入并重载 Nginx。".to_string()
+        } else if let Some(err) = &installed.reload_error {
+            format!("配置已通过检查，但重载失败。{}", err)
+        } else {
+            "配置已写入并通过检查。Nginx 未运行，启动后生效。".to_string()
+        };
+        let level = if installed.reload_error.is_some() {
+            "ERR"
+        } else {
+            "SYS"
+        };
+        self.append_log(gateway_id, level, format!("[FlashManager] {}", summary));
+        Ok(ProxyApplyReport {
+            gateway_id: gateway_id.to_string(),
+            tested: true,
+            reloaded: installed.reloaded,
+            nginx_running: prepared.running,
+            config_path: prepared.config_path,
+            summary,
+            warnings: prepared.warnings,
+            output: installed.output,
+            reload_error: installed.reload_error,
+        })
+    }
+
+    fn prepare_proxy(&self, gateway_id: &str) -> Result<PreparedProxy, String> {
+        let guard = self.inner.lock().unwrap();
+        let gateway = guard
+            .services
+            .iter()
+            .find(|svc| svc.config.id == gateway_id)
+            .ok_or_else(|| "找不到这个 Nginx 网关。".to_string())?;
+        if gateway.config.service_type != ServiceType::Nginx {
+            return Err("这个服务不是 Nginx。".to_string());
+        }
+        let layout = proxy::nginx_layout(&gateway.config)?;
+        let running = gateway.status == ServiceStatus::Running;
+        let owned: Vec<ProxyRule> = guard
+            .proxy_rules
+            .iter()
+            .filter(|rule| rule.gateway_id == gateway_id)
+            .cloned()
+            .collect();
+        let mut warnings = Vec::new();
+        let mut routes = Vec::new();
+        for rule in owned.iter().filter(|rule| rule.enabled) {
+            let target = guard
+                .services
+                .iter()
+                .find(|svc| svc.config.id == rule.service_id)
+                .ok_or_else(|| format!("规则「{}」的目标服务不存在。", rule.name))?;
+            if target.config.service_type == ServiceType::Nginx {
+                return Err(format!("规则「{}」的目标不能是 Nginx。", rule.name));
+            }
+            let port = target.config.port.ok_or_else(|| {
+                format!(
+                    "规则「{}」的目标服务「{}」没有监控端口。",
+                    rule.name, target.config.name
+                )
+            })?;
+            if port == rule.listen_port {
+                return Err(format!(
+                    "规则「{}」的监听端口不能和目标端口相同。",
+                    rule.name
+                ));
+            }
+            if target.status != ServiceStatus::Running {
+                let msg = format!(
+                    "目标服务「{}」当前没有在运行，反代过去会连不上。",
+                    target.config.name
+                );
+                if !warnings.contains(&msg) {
+                    warnings.push(msg);
+                }
+            }
+            routes.push(RenderRoute {
+                id: rule.id.clone(),
+                listen_host: rule.listen_host.clone(),
+                listen_port: rule.listen_port,
+                location: rule.location.clone(),
+                upstream_port: port,
+                websocket: rule.websocket,
+                strip_prefix: rule.strip_prefix,
+            });
+        }
+        let current = proxy::read_conf_text(&layout.conf_file)?;
+        let include = proxy::ensure_include(&current)?;
+        warnings.extend(proxy::listen_warnings(&current, &owned));
+        let rendered = proxy::render_routes(&routes, proxy::conf_has_upgrade_map(&current));
+        let config_path = layout.routes_file.display().to_string();
+        Ok(PreparedProxy {
+            layout,
+            rendered,
+            next_conf: include.conf,
+            include_ready: !include.changed,
+            warnings,
+            running,
+            config_path,
+        })
+    }
+}
+
+struct PreparedProxy {
+    layout: proxy::NginxLayout,
+    rendered: String,
+    next_conf: String,
+    include_ready: bool,
+    warnings: Vec<String>,
+    running: bool,
+    config_path: String,
+}
+
+fn check_proxy_target(rule: &ProxyRule, services: &[ManagedServiceInstance]) -> Result<(), String> {
+    let gateway = services
+        .iter()
+        .find(|svc| svc.config.id == rule.gateway_id)
+        .ok_or_else(|| "请选择一个 Nginx 服务作为网关。".to_string())?;
+    if gateway.config.service_type != ServiceType::Nginx {
+        return Err("请选择一个 Nginx 服务作为网关。".to_string());
+    }
+    let target = services
+        .iter()
+        .find(|svc| svc.config.id == rule.service_id)
+        .ok_or_else(|| "请选择要转发到的 Web 服务。".to_string())?;
+    if target.config.service_type == ServiceType::Nginx {
+        return Err("目标需要是带监控端口的 Web 服务。".to_string());
+    }
+    let port = target
+        .config
+        .port
+        .ok_or_else(|| "目标服务没有监控端口，无法作为上游。".to_string())?;
+    if port == rule.listen_port {
+        return Err("监听端口不能和目标服务的端口相同。".to_string());
+    }
+    Ok(())
+}
+
+fn new_proxy_id(existing: &[ProxyRule]) -> String {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let mut n = 0u32;
+    loop {
+        let id = format!("proxy-{:x}{:x}", nanos, n);
+        if !existing.iter().any(|rule| rule.id == id) {
+            return id;
+        }
+        n = n.saturating_add(1);
+    }
 }
 
 fn build_runner_command(
@@ -950,6 +1189,13 @@ pub fn is_local_port_open(port: u16) -> bool {
 
 pub fn now_time_str() -> String {
     Local::now().format("%H:%M:%S").to_string()
+}
+
+fn unix_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 fn load_or_init_configs(config_file: &Path, _base_dir: &Path) -> Vec<ServiceConfig> {

@@ -37,6 +37,7 @@ export interface ServiceView extends ServiceConfig {
   memoryMb: number;
   uptimeSeconds: number;
   portActive: boolean;
+  lastStartedAt?: number | null;
   logs: LogEntry[];
 }
 
@@ -67,4 +68,43 @@ export interface DiagnoseReport {
   healthy: boolean;
   summary: string;
   recentLogs: LogEntry[];
+}
+
+export interface ProxyRule {
+  id: string;
+  name: string;
+  enabled: boolean;
+  gatewayId: string;
+  listenHost: string;
+  listenPort: number;
+  location: string;
+  serviceId: string;
+  websocket: boolean;
+  stripPrefix: boolean;
+}
+
+export interface ProxyPreview {
+  gatewayId: string;
+  configPath: string;
+  conf: string;
+  warnings: string[];
+  includeReady: boolean;
+}
+
+export interface ProxyApplyReport {
+  gatewayId: string;
+  tested: boolean;
+  reloaded: boolean;
+  nginxRunning: boolean;
+  configPath: string;
+  summary: string;
+  warnings: string[];
+  output: string;
+  reloadError?: string | null;
+}
+
+export interface ProxyOpenRequest {
+  gatewayId?: string;
+  serviceId?: string;
+  edit?: boolean;
 }
