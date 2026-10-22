@@ -100,6 +100,9 @@ pub struct ServiceView {
     pub memory_mb: f32,
     pub uptime_seconds: u64,
     pub port_active: bool,
+    /// Unix 毫秒。只在启动时更新，停止后保留，供界面按最近启动排序。
+    #[serde(default)]
+    pub last_started_at: Option<u64>,
     pub logs: Vec<LogEntry>,
 }
 
@@ -143,4 +146,68 @@ pub struct DiagnoseReport {
     pub healthy: bool,
     pub summary: String,
     pub recent_logs: Vec<LogEntry>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_listen_host() -> String {
+    "127.0.0.1".to_string()
+}
+
+fn default_location() -> String {
+    "/".to_string()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyRule {
+    #[serde(default)]
+    pub id: String,
+    pub name: String,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    pub gateway_id: String,
+    #[serde(default = "default_listen_host")]
+    pub listen_host: String,
+    pub listen_port: u16,
+    #[serde(default = "default_location")]
+    pub location: String,
+    pub service_id: String,
+    #[serde(default = "default_true")]
+    pub websocket: bool,
+    #[serde(default = "default_true")]
+    pub strip_prefix: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyFile {
+    pub version: String,
+    pub rules: Vec<ProxyRule>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyPreview {
+    pub gateway_id: String,
+    pub config_path: String,
+    pub conf: String,
+    pub warnings: Vec<String>,
+    pub include_ready: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyApplyReport {
+    pub gateway_id: String,
+    pub tested: bool,
+    pub reloaded: bool,
+    pub nginx_running: bool,
+    pub config_path: String,
+    pub summary: String,
+    pub warnings: Vec<String>,
+    pub output: String,
+    pub reload_error: Option<String>,
 }

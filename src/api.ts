@@ -1,5 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
-import { DashboardSnapshot, DiagnoseReport, LogPage, ServiceConfig, ServiceView } from "./types";
+import {
+  DashboardSnapshot,
+  DiagnoseReport,
+  LogPage,
+  ProxyApplyReport,
+  ProxyPreview,
+  ProxyRule,
+  ServiceConfig,
+  ServiceView,
+} from "./types";
 
 const AGENT_HTTP_BASE = "http://127.0.0.1:19527/api/v1";
 
@@ -173,6 +182,62 @@ export async function openFrontendUrl(url: string): Promise<void> {
     return;
   }
   window.open(url, "_blank", "noopener,noreferrer");
+}
+
+export async function fetchProxyRules(): Promise<ProxyRule[]> {
+  if (isTauriRuntime()) {
+    return await invoke<ProxyRule[]>("list_proxy_rules");
+  }
+  const res = await fetch(`${AGENT_HTTP_BASE}/proxies`);
+  if (!res.ok) throw new Error(await res.text());
+  return await res.json();
+}
+
+export async function saveProxyRule(rule: ProxyRule): Promise<ProxyRule> {
+  if (isTauriRuntime()) {
+    return await invoke<ProxyRule>("save_proxy_rule", { rule });
+  }
+  const res = await fetch(`${AGENT_HTTP_BASE}/proxies`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(rule),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return await res.json();
+}
+
+export async function deleteProxyRule(id: string): Promise<ProxyRule[]> {
+  if (isTauriRuntime()) {
+    return await invoke<ProxyRule[]>("delete_proxy_rule", { id });
+  }
+  const res = await fetch(`${AGENT_HTTP_BASE}/proxies/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return await res.json();
+}
+
+export async function previewProxy(gatewayId: string): Promise<ProxyPreview> {
+  if (isTauriRuntime()) {
+    return await invoke<ProxyPreview>("preview_proxy_rules", { gatewayId });
+  }
+  const res = await fetch(
+    `${AGENT_HTTP_BASE}/proxies/preview?gatewayId=${encodeURIComponent(gatewayId)}`
+  );
+  if (!res.ok) throw new Error(await res.text());
+  return await res.json();
+}
+
+export async function applyProxy(gatewayId: string): Promise<ProxyApplyReport> {
+  if (isTauriRuntime()) {
+    return await invoke<ProxyApplyReport>("apply_proxy_rules", { gatewayId });
+  }
+  const res = await fetch(
+    `${AGENT_HTTP_BASE}/proxies/apply?gatewayId=${encodeURIComponent(gatewayId)}`,
+    { method: "POST" }
+  );
+  if (!res.ok) throw new Error(await res.text());
+  return await res.json();
 }
 
 export async function hibernateToTray(): Promise<boolean> {

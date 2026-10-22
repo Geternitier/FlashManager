@@ -2,7 +2,10 @@
 //! CLI commands, and browser-mode frontend communication.
 
 use crate::detector::auto_detect_service;
-use crate::models::{DashboardSnapshot, DiagnoseReport, LogPage, ServiceConfig, ServiceView};
+use crate::models::{
+    DashboardSnapshot, DiagnoseReport, LogPage, ProxyApplyReport, ProxyPreview, ProxyRule,
+    ServiceConfig, ServiceView,
+};
 use crate::supervisor::{SupervisorHandle, AGENT_API_PORT};
 use axum::{
     body::Body,
@@ -66,6 +69,12 @@ pub struct EncodingRequest {
     pub encoding: String,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GatewayQuery {
+    pub gateway_id: String,
+}
+
 pub fn spawn_agent_http_server(supervisor: SupervisorHandle) {
     tauri::async_runtime::spawn(async move {
         let app = Router::new()
@@ -83,6 +92,10 @@ pub fn spawn_agent_http_server(supervisor: SupervisorHandle) {
             .route("/api/v1/services/:id/encoding", post(set_encoding_handler))
             .route("/api/v1/services/:id/diagnose", get(diagnose_service_handler))
             .route("/api/v1/services/:id/logs", get(logs_handler))
+            .route("/api/v1/proxies", get(list_proxy_handler).post(save_proxy_handler))
+            .route("/api/v1/proxies/preview", get(preview_proxy_handler))
+            .route("/api/v1/proxies/apply", post(apply_proxy_handler))
+            .route("/api/v1/proxies/:id", delete(delete_proxy_handler))
             .route("/api/v1/focus", post(focus_handler))
             .layer(middleware::from_fn_with_state(
                 supervisor.clone(),
@@ -277,6 +290,51 @@ async fn batch_action_handler(
     Json(req): Json<BatchActionRequest>,
 ) -> Json<DashboardSnapshot> {
     Json(sup.batch_action(req.group, &req.action))
+}
+
+async fn list_proxy_handler(State(sup): State<SupervisorHandle>) -> Json<Vec<ProxyRule>> {
+    Json(sup.list_proxy_rules())
+}
+
+async fn save_proxy_handler(
+    State(sup): State<SupervisorHandle>,
+    Json(rule): Json<ProxyRule>,
+) -> Result<Json<ProxyRule>, (StatusCode, String)> {
+    sup.upsert_proxy_rule(rule)
+        .map(Json)
+        .map_err(|err| (StatusCode::BAD_REQUEST, err))
+}
+
+async fn delete_proxy_handler(
+    State(sup): State<SupervisorHandle>,
+    AxumPath(id): AxumPath<String>,
+) -> Result<Json<Vec<ProxyRule>>, (StatusCode, String)> {
+    sup.delete_proxy_rule(&id).map(Json).map_err(|err| {
+        let code = if err.contains("找不到") {
+            StatusCode::NOT_FOUND
+        } else {
+            StatusCode::BAD_REQUEST
+        };
+        (code, err)
+    })
+}
+
+async fn preview_proxy_handler(
+    State(sup): State<SupervisorHandle>,
+    Query(query): Query<GatewayQuery>,
+) -> Result<Json<ProxyPreview>, (StatusCode, String)> {
+    sup.preview_proxy(&query.gateway_id)
+        .map(Json)
+        .map_err(|err| (StatusCode::BAD_REQUEST, err))
+}
+
+async fn apply_proxy_handler(
+    State(sup): State<SupervisorHandle>,
+    Query(query): Query<GatewayQuery>,
+) -> Result<Json<ProxyApplyReport>, (StatusCode, String)> {
+    sup.apply_proxy(&query.gateway_id)
+        .map(Json)
+        .map_err(|err| (StatusCode::BAD_REQUEST, err))
 }
 
 async fn diagnose_service_handler(
