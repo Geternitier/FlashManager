@@ -240,9 +240,9 @@ function timeAgo(timestamp: number, now: number): string {
 
 function greetingFor(date: Date) {
   const hour = date.getHours();
-  if (hour < 5) return { main: "夜深了", side: "夜深啦", line: "小闪把灯调暗了一点。" };
+  if (hour < 5) return { main: "夜深了", side: "夜深啦", line: "本鱼把灯调暗了一点。" };
   if (hour < 11) return { main: "早上好", side: "早上好呀", line: "今天也从一杯热茶开始吧。" };
-  if (hour < 13) return { main: "中午好", side: "中午好呀", line: "记得吃饭，服务交给小闪。" };
+  if (hour < 13) return { main: "中午好", side: "中午好呀", line: "记得吃饭，服务交给本鱼。" };
   if (hour < 18) return { main: "下午好", side: "下午好呀", line: "下午也一起加油吧。" };
   return { main: "晚上好", side: "晚上好呀", line: "今天也辛苦啦～" };
 }
@@ -753,7 +753,7 @@ export default function App() {
     : !connected
       ? "还没有连上本地守护进程，界面会自动重试。"
       : services.length === 0
-        ? "小屋还空着。把第一个服务请进来，或者把文件夹交给小闪。"
+        ? "小屋还空着。把第一个服务请进来，或者把文件夹交给本鱼。"
         : errorCount > 0
           ? `${counts.running} 个小伙伴在认真工作，${errorCount} 个需要你摸摸。`
           : counts.running === 0
@@ -1119,7 +1119,7 @@ export default function App() {
 
   const detectService = async () => {
     if (!detectPath.trim()) {
-      setDetectError("输入项目文件夹或脚本路径后，小闪才能开始找。");
+      setDetectError("输入项目文件夹或脚本路径后，本鱼才能开始找。");
       return;
     }
     setDetectBusy(true);
@@ -1262,7 +1262,7 @@ export default function App() {
 
   const commandItems = [
     { label: "添加服务", hint: "手动填写配置", icon: <Plus className="i" />, run: openAdd },
-    { label: "从文件夹自动识别", hint: "交给小闪", icon: <Folder className="i" />, run: () => setModal("detect") },
+    { label: "从文件夹自动识别", hint: "交给本鱼", icon: <Folder className="i" />, run: () => setModal("detect") },
     { label: "全部启动", hint: "启动所有未运行服务", icon: <Play className="i" />, run: () => void startAll() },
     { label: "全部停止", hint: "先确认影响范围", icon: <Square className="i" />, run: askBatchStop },
     { label: "重启异常服务", hint: "只处理需要关心的", icon: <RefreshCw className="i" />, run: () => void restartErrors() },
@@ -1353,7 +1353,7 @@ export default function App() {
 
       <div className="fm-body">
         <aside className="fm-side">
-          <button className="fm-greet-card" onClick={resetFilters} aria-label="和闪打招呼">
+          <button className="fm-greet-card" onClick={resetFilters} aria-label="和本鱼打招呼">
             <span className="fm-greet-mascot">
               <Mascot size={64} mood={heroMood} />
             </span>
@@ -1502,19 +1502,6 @@ export default function App() {
             </div>
           </details>
 
-          <div className="fm-guard">
-            <span className="fm-guard-icon">
-              <Shield className="i" />
-            </span>
-            <div>
-              <b>Win32 进程树守护</b>
-              <small>停止时整棵树一起回收</small>
-            </div>
-            <span className="fm-guard-ok" title="运行正常">
-              ✓
-            </span>
-          </div>
-
           <div className="fm-side-foot">
             <button onClick={() => setModal("settings")}>
               <Settings className="i" />
@@ -1548,7 +1535,7 @@ export default function App() {
                 <p>{heroSub}</p>
               </div>
               <div className="fm-hero-side">
-                <div className="fm-hero-mascot" role="button" tabIndex={0} aria-label="和小闪打招呼">
+                <div className="fm-hero-mascot" role="button" tabIndex={0} aria-label="和本鱼打招呼">
                   <Mascot size={88} mood={heroMood} />
                   <span className="fm-bubble">都交给我吧～</span>
                 </div>
@@ -1769,7 +1756,7 @@ export default function App() {
                     <Mascot size={108} mood="sleep" />
                   </span>
                   <h3>小屋里还空空的…</h3>
-                  <p>把第一个本地服务请进来吧。你可以手动填写，也可以直接把项目文件夹交给小闪，让它自己识别。</p>
+                  <p>把第一个本地服务请进来吧。你可以手动填写，也可以直接把项目文件夹交给本鱼，让我自己识别。</p>
                   <div className="fm-empty-actions">
                     <button className="fm-btn fm-btn-primary" onClick={() => openAdd()}>
                       <Plus className="i" />
@@ -1798,7 +1785,7 @@ export default function App() {
                     <Mascot size={84} mood="idle" />
                   </span>
                   <h3>没有找到符合条件的小伙伴</h3>
-                  <p>试试换一个关键词，或者清掉状态、分组和类型筛选。小闪也可以帮你直接搜索整个小屋。</p>
+                  <p>试试换一个关键词，或者清掉状态、分组和类型筛选。本鱼也可以帮你直接搜索整个小屋。</p>
                   <div className="fm-empty-actions">
                     <button className="fm-btn fm-btn-primary" onClick={resetFilters}>
                       清除筛选
@@ -2744,7 +2731,7 @@ export default function App() {
                 <Mascot size={40} mood="idle" />
               </span>
               <div className="fm-modal-head-copy">
-                <h2>把文件夹交给小闪</h2>
+                <h2>把文件夹交给本鱼</h2>
                 <p>输入项目目录或脚本路径，自动识别 Python / Node / Nginx / EXE / BAT，并生成可确认的启动配置。</p>
               </div>
               <button type="button" className="fm-modal-close" onClick={() => setModal(null)} aria-label="关闭">
