@@ -350,7 +350,7 @@ pub fn show_or_recreate_main_window(app: &AppHandle) {
     }
 
     let _ = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-        .title("FlashManager — 本地软件与服务管理平台")
+        .title("守饭人")
         .inner_size(1240.0, 800.0)
         .min_inner_size(980.0, 640.0)
         .center()
@@ -383,7 +383,7 @@ fn setup_system_tray(app: &AppHandle) -> tauri::Result<()> {
         // cursor as the blue app-starting circle until the next click.
         // Left click only restores the window; right click opens this menu.
         .show_menu_on_left_click(false)
-        .tooltip("FlashManager — 本地软件与服务管理平台 (后台轻量运行中)")
+        .tooltip("守饭人")
         .on_menu_event(|app_handle, event| match event.id.as_ref() {
             "open" => {
                 show_or_recreate_main_window(app_handle);
