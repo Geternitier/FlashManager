@@ -3,8 +3,8 @@
 
 use crate::detector::auto_detect_service;
 use crate::models::{
-    DashboardSnapshot, DiagnoseReport, LogPage, ProxyApplyReport, ProxyPreview, ProxyRule,
-    ServiceConfig, ServiceView,
+    BatchActionReport, DashboardSnapshot, DiagnoseReport, LogPage, ProxyApplyReport, ProxyPreview,
+    ProxyRule, ServiceConfig, ServiceView,
 };
 use crate::supervisor::{SupervisorHandle, AGENT_API_PORT};
 use axum::{
@@ -83,16 +83,29 @@ pub fn spawn_agent_http_server(supervisor: SupervisorHandle) {
             .route("/api/v1/services", get(snapshot_handler))
             .route("/api/v1/services/register", post(register_service_handler))
             .route("/api/v1/services/auto-detect", post(auto_detect_handler))
+            .route(
+                "/api/v1/services/detect-preview",
+                post(detect_preview_handler),
+            )
             .route("/api/v1/services/batch", post(batch_action_handler))
             .route("/api/v1/services/:id", delete(delete_service_handler))
             .route("/api/v1/services/:id/start", post(start_service_handler))
             .route("/api/v1/services/:id/stop", post(stop_service_handler))
-            .route("/api/v1/services/:id/restart", post(restart_service_handler))
+            .route(
+                "/api/v1/services/:id/restart",
+                post(restart_service_handler),
+            )
             .route("/api/v1/services/:id/clear-logs", post(clear_logs_handler))
             .route("/api/v1/services/:id/encoding", post(set_encoding_handler))
-            .route("/api/v1/services/:id/diagnose", get(diagnose_service_handler))
+            .route(
+                "/api/v1/services/:id/diagnose",
+                get(diagnose_service_handler),
+            )
             .route("/api/v1/services/:id/logs", get(logs_handler))
-            .route("/api/v1/proxies", get(list_proxy_handler).post(save_proxy_handler))
+            .route(
+                "/api/v1/proxies",
+                get(list_proxy_handler).post(save_proxy_handler),
+            )
             .route("/api/v1/proxies/preview", get(preview_proxy_handler))
             .route("/api/v1/proxies/apply", post(apply_proxy_handler))
             .route("/api/v1/proxies/:id", delete(delete_proxy_handler))
@@ -177,7 +190,9 @@ async fn register_service_handler(
     Json(config): Json<ServiceConfig>,
 ) -> Result<Json<RegisterResponse>, (StatusCode, String)> {
     let start_now = query.start_now.unwrap_or(config.auto_start_on_register);
-    let mut view = sup.upsert_service(config, Some("Agent API 注册"));
+    let mut view = sup
+        .upsert_service(config, Some("Agent API 注册"))
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     let id = view.id.clone();
 
     if start_now {
@@ -209,7 +224,9 @@ async fn auto_detect_handler(
     let start_now = req.start_now.unwrap_or(true);
     cfg.auto_start_on_register = start_now;
 
-    let mut view = sup.upsert_service(cfg, Some("Agent 智能目录探测"));
+    let mut view = sup
+        .upsert_service(cfg, Some("Agent 智能目录探测"))
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     let id = view.id.clone();
 
     if start_now {
@@ -288,7 +305,7 @@ async fn set_encoding_handler(
 async fn batch_action_handler(
     State(sup): State<SupervisorHandle>,
     Json(req): Json<BatchActionRequest>,
-) -> Json<DashboardSnapshot> {
+) -> Json<BatchActionReport> {
     Json(sup.batch_action(req.group, &req.action))
 }
 
@@ -351,4 +368,12 @@ async fn diagnose_service_handler(
     sup.diagnose_service(&id, lines)
         .map(Json)
         .map_err(|e| (StatusCode::NOT_FOUND, e))
+}
+
+async fn detect_preview_handler(
+    Json(req): Json<AutoDetectRequest>,
+) -> Result<Json<ServiceConfig>, (StatusCode, String)> {
+    auto_detect_service(&req.path, req.name, req.group)
+        .map(Json)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))
 }

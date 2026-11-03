@@ -3,6 +3,7 @@ pub mod detector;
 pub mod job_object;
 pub mod models;
 pub mod proxy;
+pub mod storage;
 pub mod supervisor;
 
 use std::path::{Path, PathBuf};
@@ -13,14 +14,14 @@ use std::time::Duration;
 use crate::agent_api::spawn_agent_http_server;
 use crate::detector::auto_detect_service;
 use crate::models::{
-    DashboardSnapshot, DiagnoseReport, LogPage, ProxyApplyReport, ProxyPreview, ProxyRule,
-    ServiceConfig, ServiceView,
+    BatchActionReport, DashboardSnapshot, DiagnoseReport, LogPage, ProxyApplyReport, ProxyPreview,
+    ProxyRule, ServiceConfig, ServiceView,
 };
 use crate::supervisor::SupervisorHandle;
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Manager, RunEvent, State, WebviewUrl, WebviewWindowBuilder,     WindowEvent,
+    AppHandle, Manager, RunEvent, State, WebviewUrl, WebviewWindowBuilder, WindowEvent,
 };
 
 static QUIT_REQUESTED: AtomicBool = AtomicBool::new(false);
@@ -90,7 +91,10 @@ pub fn report_error(text: &str) {
 fn message_box(text: &str) {
     use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONWARNING, MB_OK};
     let body: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
-    let title: Vec<u16> = "FlashManager".encode_utf16().chain(std::iter::once(0)).collect();
+    let title: Vec<u16> = "FlashManager"
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
     unsafe {
         MessageBoxW(
             std::ptr::null_mut(),
@@ -177,7 +181,7 @@ fn save_service_config(
     config: ServiceConfig,
     start_now: Option<bool>,
 ) -> Result<ServiceView, String> {
-    let mut view = sup.upsert_service(config, Some("界面配置保存"));
+    let mut view = sup.upsert_service(config, Some("界面配置保存"))?;
     if start_now.unwrap_or(false) {
         view = sup.start_service(&view.id)?;
     }
@@ -216,7 +220,7 @@ fn batch_service_action(
     sup: State<'_, SupervisorHandle>,
     group: Option<String>,
     action: String,
-) -> DashboardSnapshot {
+) -> BatchActionReport {
     sup.batch_action(group, &action)
 }
 
@@ -240,6 +244,15 @@ fn set_service_encoding(
 }
 
 #[tauri::command]
+fn preview_detect_service(
+    path: String,
+    name: Option<String>,
+    group: Option<String>,
+) -> Result<ServiceConfig, String> {
+    auto_detect_service(&path, name, group)
+}
+
+#[tauri::command]
 fn auto_detect_and_register(
     sup: State<'_, SupervisorHandle>,
     path: String,
@@ -248,7 +261,7 @@ fn auto_detect_and_register(
     start_now: Option<bool>,
 ) -> Result<ServiceView, String> {
     let cfg = auto_detect_service(&path, name, group)?;
-    let mut view = sup.upsert_service(cfg, Some("智能目录探测接入"));
+    let mut view = sup.upsert_service(cfg, Some("智能目录探测接入"))?;
     if start_now.unwrap_or(true) {
         view = sup.start_service(&view.id)?;
     }
@@ -269,7 +282,10 @@ fn open_frontend_url(url: String) -> Result<(), String> {
     if !(trimmed.starts_with("http://") || trimmed.starts_with("https://")) {
         return Err("前端地址需要以 http:// 或 https:// 开头".to_string());
     }
-    if trimmed.chars().any(|c| c.is_control() || matches!(c, '"' | '\'' | '&' | '|' | '<' | '>')) {
+    if trimmed
+        .chars()
+        .any(|c| c.is_control() || matches!(c, '"' | '\'' | '&' | '|' | '<' | '>'))
+    {
         return Err("前端地址包含无法打开的字符".to_string());
     }
 
@@ -301,10 +317,7 @@ fn list_proxy_rules(sup: State<'_, SupervisorHandle>) -> Vec<ProxyRule> {
 }
 
 #[tauri::command]
-fn save_proxy_rule(
-    sup: State<'_, SupervisorHandle>,
-    rule: ProxyRule,
-) -> Result<ProxyRule, String> {
+fn save_proxy_rule(sup: State<'_, SupervisorHandle>, rule: ProxyRule) -> Result<ProxyRule, String> {
     sup.upsert_proxy_rule(rule)
 }
 
@@ -464,6 +477,7 @@ pub fn run() {
             clear_service_logs,
             set_service_encoding,
             auto_detect_and_register,
+            preview_detect_service,
             diagnose_service_cmd,
             open_frontend_url,
             list_proxy_rules,

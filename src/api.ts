@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import {
+  BatchActionReport,
   DashboardSnapshot,
   DiagnoseReport,
   LogPage,
@@ -10,7 +11,7 @@ import {
   ServiceView,
 } from "./types";
 
-const AGENT_HTTP_BASE = "http://127.0.0.1:19527/api/v1";
+const AGENT_HTTP_BASE = "/api/v1";
 
 function isTauriRuntime(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -103,9 +104,9 @@ export async function deleteServiceConfig(id: string): Promise<DashboardSnapshot
 export async function batchServiceAction(
   group: string | null,
   action: "start" | "stop"
-): Promise<DashboardSnapshot> {
+): Promise<BatchActionReport> {
   if (isTauriRuntime()) {
-    return await invoke<DashboardSnapshot>("batch_service_action", { group, action });
+    return await invoke<BatchActionReport>("batch_service_action", { group, action });
   }
   const res = await fetch(`${AGENT_HTTP_BASE}/services/batch`, {
     method: "POST",
@@ -246,4 +247,13 @@ export async function hibernateToTray(): Promise<boolean> {
     return true;
   }
   return false;
+}
+
+export async function previewDetectedService(path: string, group?: string): Promise<ServiceConfig> {
+  if (isTauriRuntime()) return invoke<ServiceConfig>("preview_detect_service", { path, group: group || null, name: null });
+  const res = await fetch(`${AGENT_HTTP_BASE}/services/detect-preview`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path, group }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
 }

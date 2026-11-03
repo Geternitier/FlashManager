@@ -31,6 +31,7 @@ export interface ServiceConfig {
 }
 
 export interface ServiceView extends ServiceConfig {
+  needsRestart: boolean;
   status: ServiceStatus;
   pid?: number | null;
   cpuUsage: number;
@@ -107,4 +108,8 @@ export interface ProxyOpenRequest {
   gatewayId?: string;
   serviceId?: string;
   edit?: boolean;
+}
+
+export interface BatchActionReport extends DashboardSnapshot {
+  results: { id: string; error: string | null }[];
 }
