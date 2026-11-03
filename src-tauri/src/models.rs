@@ -25,7 +25,7 @@ pub enum ServiceStatus {
     Error,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ServiceConfig {
     pub id: String,
@@ -81,6 +81,7 @@ pub struct LogPage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ServiceView {
+    pub needs_restart: bool,
     pub id: String,
     pub name: String,
     pub group: String,
@@ -210,4 +211,19 @@ pub struct ProxyApplyReport {
     pub warnings: Vec<String>,
     pub output: String,
     pub reload_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchItemResult {
+    pub id: String,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchActionReport {
+    #[serde(flatten)]
+    pub snapshot: DashboardSnapshot,
+    pub results: Vec<BatchItemResult>,
 }

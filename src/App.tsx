@@ -1,3 +1,5 @@
+import { useDialogFocus } from "./useDialogFocus";
+import { parseServiceArgs } from "./serviceArgs";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import {
@@ -40,7 +42,7 @@ import {
   X,
 } from "lucide-react";
 import {
-  autoDetectAndRegister,
+  previewDetectedService,
   batchServiceAction,
   clearServiceLogs,
   deleteServiceConfig,
@@ -300,25 +302,6 @@ function Mascot({
   );
 }
 
-function Sparkline({ color }: { color: string }) {
-  const values = [10, 12, 9, 13, 11, 14, 10, 12, 9, 11, 8, 10];
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const points = values
-    .map((value, index) => {
-      const x = (index / (values.length - 1)) * 62;
-      const y = 21 - ((value - min) / Math.max(1, max - min)) * 15;
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    })
-    .join(" ");
-  return (
-    <svg className="fm-sparkline" viewBox="0 0 62 24" aria-hidden="true" style={{ "--stat-color": color } as CSSProperties}>
-      <polyline points={`0,24 ${points} 62,24`} className="fill" />
-      <polyline points={points} />
-    </svg>
-  );
-}
-
 function ModalFrame({
   children,
   onClose,
@@ -330,6 +313,7 @@ function ModalFrame({
   className?: string;
   label?: string;
 }) {
+  const dialogRef = useDialogFocus();
   return (
     <div className="fm-modal-root is-open">
       <div
@@ -339,7 +323,7 @@ function ModalFrame({
           if (event.target === event.currentTarget) onClose();
         }}
       >
-        <div className={`fm-modal ${className}`} role="dialog" aria-modal="true" aria-label={label} tabIndex={-1}>
+        <div ref={dialogRef} className={`fm-modal ${className}`} role="dialog" aria-modal="true" aria-label={label} tabIndex={-1}>
           {children}
         </div>
       </div>
@@ -415,10 +399,11 @@ function MenuPanel({ menu, onClose }: { menu: MenuState; onClose: () => void }) 
 export default function App() {
   const appRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
-  const paletteInputRef = useRef<HTMLInputElement>(null);
   const logBoxRef = useRef<HTMLDivElement>(null);
   const toastIdRef = useRef(0);
   const logCursorRef = useRef(0);
+  const snapshotVersionRef = useRef(0);
+  const snapshotInFlightRef = useRef(false);
   const logEpochRef = useRef(0);
   const logPullingRef = useRef(false);
 
@@ -448,7 +433,6 @@ export default function App() {
   const [reduceMotion, setReduceMotion] = useState(() => localStorage.getItem("fm-motion") === "1");
 
   const [busy, setBusy] = useState<Record<string, string>>({});
-  const [staleIds, setStaleIds] = useState<string[]>([]);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [menu, setMenu] = useState<MenuState | null>(null);
 
@@ -468,6 +452,7 @@ export default function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState("");
   const [paletteIndex, setPaletteIndex] = useState(0);
+  const paletteDialogRef = useDialogFocus(paletteOpen);
 
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [logLevel, setLogLevel] = useState("all");
@@ -487,6 +472,7 @@ export default function App() {
   };
 
   const applySnapshot = (snapshot: DashboardSnapshot) => {
+    ++snapshotVersionRef.current;
     setServices(snapshot.services);
     setMetrics(snapshot.metrics);
     setLastUpdated(Date.now());
@@ -495,11 +481,14 @@ export default function App() {
   };
 
   const refresh = async () => {
+    const version = ++snapshotVersionRef.current;
     try {
       const snapshot = await fetchDashboardSnapshot();
+      if (version !== snapshotVersionRef.current) return;
       applySnapshot(snapshot);
       setSelectedId((current) => (current && snapshot.services.some((service) => service.id === current) ? current : snapshot.services[0]?.id ?? ""));
     } catch {
+      if (version !== snapshotVersionRef.current) return;
       setConnected(false);
       setLoading(false);
     }
@@ -507,18 +496,25 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false;
+    let retryAfter = 0;
+    let failures = 0;
     const pull = async () => {
+      if (snapshotInFlightRef.current || Date.now() < retryAfter) return;
+      snapshotInFlightRef.current = true;
+      const version = ++snapshotVersionRef.current;
       try {
         const snapshot = await fetchDashboardSnapshot();
-        if (cancelled) return;
+        if (cancelled || version !== snapshotVersionRef.current) return;
+        failures = 0;
         applySnapshot(snapshot);
         setSelectedId((current) => (current && snapshot.services.some((service) => service.id === current) ? current : snapshot.services[0]?.id ?? ""));
       } catch {
-        if (!cancelled) {
+        if (!cancelled && version === snapshotVersionRef.current) {
+          retryAfter = Date.now() + Math.min(30000, 1000 * 2 ** ++failures);
           setConnected(false);
           setLoading(false);
         }
-      }
+      } finally { snapshotInFlightRef.current = false; }
     };
     void pull();
     const timer = window.setInterval(() => {
@@ -608,6 +604,14 @@ export default function App() {
       const target = event.target as HTMLElement | null;
       const typing = Boolean(target && (/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) || target.isContentEditable));
 
+      if (modal || confirmState || document.querySelector('[role="dialog"][aria-modal="true"]:not(.fm-palette)')) {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          if (confirmState) setConfirmState(null);
+          else if (modal) setModal(null);
+        }
+        return;
+      }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         setModal(null);
@@ -650,7 +654,7 @@ export default function App() {
         }
       }
 
-      if (typing) return;
+      if (typing || paletteOpen) return;
       if (event.key === "/") {
         event.preventDefault();
         searchRef.current?.focus();
@@ -792,7 +796,6 @@ export default function App() {
       else if (action === "stop") await stopService(id);
       else await restartService(id);
       await refresh();
-      setStaleIds((current) => current.filter((item) => item !== id));
       pushServiceToast(services.find((service) => service.id === id), action);
     } catch (error) {
       pushToast({ kind: "error", title: "操作没有完成", message: errorText(error) });
@@ -812,11 +815,21 @@ export default function App() {
 
   const scopeForBatch = group === "全部服务" ? null : group;
 
+  const showBatchResult = (report: import("./types").BatchActionReport, action: string) => {
+    const failures = report.results.filter((result) => result.error);
+    pushToast({
+      kind: failures.length ? "error" : "success",
+      title: failures.length ? `批量${action}部分失败` : `批量${action}完成`,
+      message: `${report.results.length - failures.length} 项成功，${failures.length} 项失败。` + failures.map((result) => `${services.find((s) => s.id === result.id)?.name ?? result.id}：${result.error}`).join("；"),
+      action: failures.length ? { label: "重试失败项", onClick: () => { for (const result of failures) void runServiceAction(result.id, action === "启动" ? "start" : "stop"); } } : undefined,
+    });
+  };
+
   const startAll = async () => {
     try {
       const snapshot = await batchServiceAction(scopeForBatch, "start");
       applySnapshot(snapshot);
-      pushToast({ kind: "success", title: "批量启动完成", message: `${scopeForBatch ?? "全部"} 服务已开始运行` });
+      showBatchResult(snapshot, "启动");
     } catch (error) {
       pushToast({ kind: "error", title: "批量启动失败", message: errorText(error) });
     }
@@ -839,7 +852,7 @@ export default function App() {
         try {
           const snapshot = await batchServiceAction(scopeForBatch, "stop");
           applySnapshot(snapshot);
-          pushToast({ kind: "info", title: "批量停止完成", message: `${running.length} 个服务已休息` });
+          showBatchResult(snapshot, "停止");
         } catch (error) {
           pushToast({ kind: "error", title: "批量停止失败", message: errorText(error) });
         }
@@ -1010,7 +1023,7 @@ export default function App() {
       cwd: serviceType === "nginx" ? "D:/Develop/Windows/Nginx" : "",
       autoRestart: serviceType === "nginx" ? false : EMPTY_FORM.autoRestart,
     });
-    setFormArgs(serviceType === "nginx" ? "-c conf/nginx.conf" : "");
+    setFormArgs(JSON.stringify(serviceType === "nginx" ? ["-c", "conf/nginx.conf"] : [], null, 2));
     setFormError("");
     setModal("service");
     setMenu(null);
@@ -1029,7 +1042,7 @@ export default function App() {
       scriptPath: service.scriptPath ?? "",
       frontendUrl: service.frontendUrl ?? "",
     });
-    setFormArgs((service.args ?? []).join(" "));
+    setFormArgs(JSON.stringify(service.args ?? [], null, 2));
     setFormError("");
     setModal("service");
     setMenu(null);
@@ -1047,6 +1060,7 @@ export default function App() {
   };
 
   const saveForm = async (startAfter: boolean) => {
+    if (saving) return;
     const scriptNeeded = ["python", "node", "script"].includes(form.serviceType);
     const name = form.name.trim();
     const executable = form.executable.trim();
@@ -1064,13 +1078,20 @@ export default function App() {
       return;
     }
 
+    if (form.port != null && (!Number.isInteger(Number(form.port)) || Number(form.port) < 1 || Number(form.port) > 65535)) {
+      setFormError("监控端口需要是 1 到 65535 之间的整数。");
+      return;
+    }
+    let args: string[];
+    try { args = parseServiceArgs(formArgs); }
+    catch (error) { setFormError(errorText(error)); return; }
     const config: ServiceConfig = {
       ...form,
       name,
       group: form.group.trim() || "默认分组",
       executable,
       scriptPath: scriptNeeded ? scriptPath : null,
-      args: formArgs.trim() ? formArgs.trim().split(/\s+/) : [],
+      args,
       cwd: form.cwd.trim(),
       env: form.env ?? {},
       port: form.port ? Number(form.port) : null,
@@ -1087,7 +1108,6 @@ export default function App() {
 
       if (editingId) {
         if (wasRunning) {
-          setStaleIds((current) => (current.includes(saved.id) ? current : [...current, saved.id]));
           pushToast({
             kind: "success",
             title: "配置已保存",
@@ -1125,11 +1145,14 @@ export default function App() {
     setDetectBusy(true);
     setDetectError("");
     try {
-      const saved = await autoDetectAndRegister(detectPath.trim(), undefined, detectGroup.trim() || undefined, true);
-      setModal(null);
-      setSelectedId(saved.id);
-      await refresh();
-      pushToast({ kind: "success", title: "已自动接入并启动", message: `「${saved.name}」· ${saved.group}` });
+      const config = await previewDetectedService(detectPath.trim(), detectGroup.trim() || undefined);
+      const existing = services.find((service) => service.id === config.id);
+      setEditingId(existing?.id ?? null);
+      setForm({ ...config, autoStartOnRegister: false });
+      setFormArgs(JSON.stringify(config.args ?? [], null, 2));
+      setFormError("");
+      setModal("service");
+      pushToast({ kind: "info", title: "识别完成，请确认配置", message: existing ? "已识别到现有服务，确认后更新配置。" : "尚未保存或启动服务。" });
     } catch (error) {
       setDetectError(errorText(error));
     } finally {
@@ -1283,12 +1306,6 @@ export default function App() {
     const query = paletteQuery.trim().toLowerCase();
     return !query || `${item.label} ${item.hint}`.toLowerCase().includes(query);
   });
-
-  useEffect(() => {
-    if (paletteOpen) {
-      window.setTimeout(() => paletteInputRef.current?.focus(), 30);
-    }
-  }, [paletteOpen]);
 
   const executePaletteService = (service: ServiceView) => {
     setPaletteOpen(false);
@@ -1631,7 +1648,6 @@ export default function App() {
                   <small>%</small>
                 </span>
                 <span className="fm-stat-sub">{counts.running} 个进程正在计入</span>
-                <Sparkline color="var(--fm-sky)" />
               </button>
               <button
                 className="fm-stat"
@@ -1828,7 +1844,7 @@ export default function App() {
                           </div>
                           <div className="fm-card-meta">
                             <span>{service.group}</span>
-                            {staleIds.includes(service.id) ? <span className="fm-stale-tag">待重启</span> : null}
+                            {service.needsRestart ? <span className="fm-stale-tag">待重启</span> : null}
                           </div>
                         </div>
                         <div className="fm-card-top-right">
@@ -2634,14 +2650,15 @@ export default function App() {
                 </div>
                 <div className="fm-field span-2">
                   <label htmlFor="svcArgs">
-                    启动参数 <small>空格分隔</small>
+                    启动参数 <small>JSON 字符串数组；每项是一个完整参数</small>
                   </label>
-                  <input
+                  <textarea
                     className="fm-input"
+                    rows={4}
                     id="svcArgs"
                     value={formArgs}
                     onChange={(event) => setFormArgs(event.target.value)}
-                    placeholder="例如：--port 8787 --env dev"
+                    placeholder={'["--port", "8787", "--name", "hello world"]'}
                   />
                 </div>
               </div>
@@ -2765,31 +2782,16 @@ export default function App() {
                 <label htmlFor="detectGroup">放进哪个分组</label>
                 <input className="fm-input" id="detectGroup" value={detectGroup} onChange={(event) => setDetectGroup(event.target.value)} placeholder="AI Agent 项目" />
               </div>
-              {detectBusy ? (
-                <div className="fm-detect-steps">
-                  <div className="fm-detect-step is-done">
-                    <span className="fm-detect-dot">✓</span>
-                    <span>读取目录与清单文件…</span>
-                  </div>
-                  <div className="fm-detect-step is-active">
-                    <span className="fm-detect-dot">2</span>
-                    <span>识别运行器与入口脚本…</span>
-                  </div>
-                  <div className="fm-detect-step">
-                    <span className="fm-detect-dot">3</span>
-                    <span>生成启动命令与端口建议…</span>
-                  </div>
-                </div>
-              ) : null}
+              {detectBusy ? <div role="status" className="fm-field-hint">正在读取目录并识别启动配置…</div> : null}
             </div>
             <div className="fm-modal-foot">
-              <span className="fm-modal-foot-note">识别结果会先确认；接入后会立即启动，可随时停止</span>
+              <span className="fm-modal-foot-note">下一步确认启动配置，再选择仅保存或保存并启动</span>
               <button type="button" className="fm-btn fm-btn-soft" onClick={() => setModal(null)}>
                 取消
               </button>
               <button type="submit" className="fm-btn fm-btn-primary" disabled={detectBusy}>
                 {detectBusy ? <Loader2 className="i" /> : <Folder className="i" />}
-                {detectBusy ? "正在识别…" : "开始识别并接入"}
+                {detectBusy ? "正在识别…" : "识别并预览"}
               </button>
             </div>
           </form>
@@ -2908,11 +2910,10 @@ export default function App() {
       {paletteOpen ? (
         <div className="fm-palette-root is-open">
           <div className="fm-palette-backdrop" onClick={() => setPaletteOpen(false)} />
-          <div className="fm-palette" role="dialog" aria-modal="true" aria-label="命令面板">
+          <div ref={paletteDialogRef} tabIndex={-1} className="fm-palette" role="dialog" aria-modal="true" aria-label="命令面板">
             <div className="fm-palette-search">
               <Search className="i" />
               <input
-                ref={paletteInputRef}
                 value={paletteQuery}
                 onChange={(event) => {
                   setPaletteQuery(event.target.value);

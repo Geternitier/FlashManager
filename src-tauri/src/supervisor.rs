@@ -1,8 +1,8 @@
 use crate::job_object::{kill_process_tree_fallback, ProcessJob};
 use crate::models::{
-    DashboardSnapshot, DiagnoseReport, LogEntry, LogPage, PersistentConfigFile, PlatformMetrics,
-    ProxyApplyReport, ProxyPreview, ProxyRule, ServiceConfig, ServiceStatus, ServiceType,
-    ServiceView,
+    BatchActionReport, BatchItemResult, DashboardSnapshot, DiagnoseReport, LogEntry, LogPage,
+    PersistentConfigFile, PlatformMetrics, ProxyApplyReport, ProxyPreview, ProxyRule,
+    ServiceConfig, ServiceStatus, ServiceType, ServiceView,
 };
 use crate::proxy::{self, RenderRoute};
 use chrono::Local;
@@ -23,6 +23,7 @@ pub const AGENT_API_PORT: u16 = 19527;
 
 pub struct ManagedServiceInstance {
     pub config: ServiceConfig,
+    pub running_config: Option<ServiceConfig>,
     pub status: ServiceStatus,
     pub pid: Option<u32>,
     pub started_at: Option<Instant>,
@@ -42,6 +43,7 @@ impl ManagedServiceInstance {
     pub fn new(config: ServiceConfig) -> Self {
         let mut instance = Self {
             config: config.clone(),
+            running_config: None,
             status: ServiceStatus::Stopped,
             pid: None,
             started_at: None,
@@ -85,6 +87,11 @@ impl ManagedServiceInstance {
             _ => 0,
         };
         ServiceView {
+            needs_restart: self.status == ServiceStatus::Running
+                && self
+                    .running_config
+                    .as_ref()
+                    .is_some_and(|running| runtime_config_changed(running, &self.config)),
             id: self.config.id.clone(),
             name: self.config.name.clone(),
             group: self.config.group.clone(),
@@ -124,6 +131,7 @@ pub struct SupervisorState {
 pub struct SupervisorHandle {
     pub inner: Arc<Mutex<SupervisorState>>,
     pub token: Arc<String>,
+    lifecycle_locks: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
 }
 
 impl SupervisorHandle {
@@ -161,6 +169,7 @@ impl SupervisorHandle {
         let handle = Self {
             inner: Arc::new(Mutex::new(state)),
             token,
+            lifecycle_locks: Arc::new(Mutex::new(HashMap::new())),
         };
 
         handle.spawn_background_monitors();
@@ -201,10 +210,16 @@ impl SupervisorHandle {
                             if let Ok(raw) = std::fs::read_to_string(&path) {
                                 if let Ok(cfg) = serde_json::from_str::<ServiceConfig>(&raw) {
                                     let auto_start = cfg.auto_start_on_register;
-                                    let id = cfg.id.clone();
-                                    let _ = handle_watcher.upsert_service(cfg, Some("services.d 热加载"));
-                                    if auto_start {
-                                        let _ = handle_watcher.start_service(&id);
+                                    match handle_watcher
+                                        .upsert_service(cfg, Some("services.d 热加载"))
+                                    {
+                                        Ok(view) if auto_start => {
+                                            let _ = handle_watcher.start_service(&view.id);
+                                        }
+                                        Err(_) => {
+                                            known_mtimes.remove(&path);
+                                        }
+                                        _ => {}
                                     }
                                 }
                             }
@@ -215,31 +230,14 @@ impl SupervisorHandle {
         });
     }
 
-    pub fn save_configs_to_disk(&self) -> Result<(), String> {
-        let (path, payload) = {
-            let guard = self.inner.lock().unwrap();
-            let payload = PersistentConfigFile {
+    fn persist_configs(guard: &SupervisorState, configs: Vec<ServiceConfig>) -> Result<(), String> {
+        crate::storage::write_json(
+            &guard.config_file,
+            &PersistentConfigFile {
                 version: "1.0".to_string(),
-                services: guard.services.iter().map(|s| s.config.clone()).collect(),
-            };
-            (guard.config_file.clone(), payload)
-        };
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| {
-                format!("无法创建配置目录 {}: {}", parent.display(), e)
-            })?;
-        }
-        let json = serde_json::to_string_pretty(&payload)
-            .map_err(|e| format!("配置序列化失败: {}", e))?;
-        std::fs::write(&path, json)
-            .map_err(|e| format!("写入配置失败 {}: {}", path.display(), e))?;
-        Ok(())
-    }
-
-    fn note_save_error(&self, id: &str) {
-        if let Err(err) = self.save_configs_to_disk() {
-            self.append_log(id, "ERR", format!("[FlashManager] {}", err));
-        }
+                services: configs,
+            },
+        )
     }
 
     pub fn refresh_runtime_metrics(&self) {
@@ -367,46 +365,66 @@ impl SupervisorHandle {
         &self,
         mut config: ServiceConfig,
         source_note: Option<&str>,
-    ) -> ServiceView {
+    ) -> Result<ServiceView, String> {
+        let mut guard = self.inner.lock().unwrap();
         if config.id.trim().is_empty() {
-            config.id = format!("svc-{}", chrono::Utc::now().timestamp_millis());
+            let base = format!("svc-{}", chrono::Utc::now().timestamp_millis());
+            config.id = base.clone();
+            let mut suffix = 0;
+            while guard.services.iter().any(|s| s.config.id == config.id) {
+                suffix += 1;
+                config.id = format!("{}-{}", base, suffix);
+            }
         }
         if config.cwd.trim().is_empty() {
-            if let Some(parent) = Path::new(&config.executable).parent() {
+            let source = config
+                .script_path
+                .as_deref()
+                .filter(|p| !p.is_empty())
+                .unwrap_or(&config.executable);
+            if let Some(parent) = Path::new(source).parent() {
                 config.cwd = parent.to_string_lossy().to_string();
             }
         }
-
-        let view = {
-            let mut guard = self.inner.lock().unwrap();
-            if let Some(existing) = guard.services.iter_mut().find(|s| s.config.id == config.id) {
-                existing.config = config.clone();
-                if let Some(note) = source_note {
-                    existing.push_log("SYS", format!("[FlashManager] 配置已更新 ({})", note));
-                }
-                existing.to_view()
-            } else {
-                let mut instance = ManagedServiceInstance::new(config);
-                if let Some(note) = source_note {
-                    instance.push_log("SYS", format!("[FlashManager] 自动接入成功 ({})", note));
-                }
-                let v = instance.to_view();
-                guard.services.insert(0, instance);
-                v
-            }
-        };
-
-        self.note_save_error(&view.id);
-        view
+        let mut configs: Vec<_> = guard.services.iter().map(|s| s.config.clone()).collect();
+        if let Some(existing) = configs.iter_mut().find(|s| s.id == config.id) {
+            *existing = config.clone();
+        } else {
+            configs.insert(0, config.clone());
+        }
+        Self::persist_configs(&guard, configs)?;
+        if let Some(existing) = guard.services.iter_mut().find(|s| s.config.id == config.id) {
+            existing.config = config;
+            existing.push_log(
+                "SYS",
+                format!(
+                    "[FlashManager] 配置已更新 ({})",
+                    source_note.unwrap_or("保存")
+                ),
+            );
+            Ok(existing.to_view())
+        } else {
+            let instance = ManagedServiceInstance::new(config);
+            let view = instance.to_view();
+            guard.services.insert(0, instance);
+            Ok(view)
+        }
     }
 
     pub fn delete_service(&self, id: &str) -> Result<(), String> {
-        let _ = self.stop_service(id);
-        {
-            let mut guard = self.inner.lock().unwrap();
-            guard.services.retain(|s| s.config.id != id);
-        }
-        self.save_configs_to_disk()
+        let lock = self.lifecycle_lock(id);
+        let _operation = lock.lock().unwrap();
+        self.stop_service_inner(id)?;
+        let mut guard = self.inner.lock().unwrap();
+        let configs = guard
+            .services
+            .iter()
+            .filter(|s| s.config.id != id)
+            .map(|s| s.config.clone())
+            .collect();
+        Self::persist_configs(&guard, configs)?;
+        guard.services.retain(|s| s.config.id != id);
+        Ok(())
     }
 
     pub fn clear_logs(&self, id: &str) -> Result<(), String> {
@@ -422,20 +440,30 @@ impl SupervisorHandle {
     }
 
     pub fn set_encoding(&self, id: &str, encoding: &str) -> Result<(), String> {
-        {
-            let mut guard = self.inner.lock().unwrap();
-            if let Some(svc) = guard.services.iter_mut().find(|s| s.config.id == id) {
-                svc.config.encoding = encoding.to_lowercase();
-                svc.push_log(
-                    "SYS",
-                    format!("[FlashManager] 字符编码已切换为: {}", encoding.to_uppercase()),
-                );
-            } else {
-                return Err(format!("Service not found: {}", id));
-            }
+        let mut guard = self.inner.lock().unwrap();
+        let index = guard
+            .services
+            .iter()
+            .position(|s| s.config.id == id)
+            .ok_or_else(|| format!("未找到服务: {}", id))?;
+        let mut configs: Vec<_> = guard.services.iter().map(|s| s.config.clone()).collect();
+        configs[index].encoding = encoding.to_lowercase();
+        Self::persist_configs(&guard, configs)?;
+        guard.services[index].config.encoding = encoding.to_lowercase();
+        // Encoding is consumed by the live log reader, so it needs no restart.
+        if let Some(running) = &mut guard.services[index].running_config {
+            running.encoding = encoding.to_lowercase();
         }
-        self.save_configs_to_disk()?;
         Ok(())
+    }
+
+    fn lifecycle_lock(&self, id: &str) -> Arc<Mutex<()>> {
+        self.lifecycle_locks
+            .lock()
+            .unwrap()
+            .entry(id.to_string())
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone()
     }
 
     pub fn start_service(&self, id: &str) -> Result<ServiceView, String> {
@@ -443,6 +471,16 @@ impl SupervisorHandle {
     }
 
     fn start_service_with_generation(
+        &self,
+        id: &str,
+        expected_generation: Option<u64>,
+    ) -> Result<ServiceView, String> {
+        let lock = self.lifecycle_lock(id);
+        let _operation = lock.lock().unwrap();
+        self.start_service_inner(id, expected_generation)
+    }
+
+    fn start_service_inner(
         &self,
         id: &str,
         expected_generation: Option<u64>,
@@ -492,7 +530,11 @@ impl SupervisorHandle {
             Ok(c) => c,
             Err(e) => {
                 let mut guard = self.inner.lock().unwrap();
-                if let Some(svc) = guard.services.iter_mut().find(|s| s.config.id == id) {
+                if let Some(svc) = guard
+                    .services
+                    .iter_mut()
+                    .find(|s| s.config.id == id && s.generation == committed_gen)
+                {
                     svc.status = ServiceStatus::Error;
                     svc.push_log(
                         "ERR",
@@ -519,38 +561,36 @@ impl SupervisorHandle {
             None
         };
 
-        let aborted = {
-            let guard = self.inner.lock().unwrap();
-            guard
-                .services
-                .iter()
-                .find(|s| s.config.id == id)
-                .map(|svc| svc.generation != committed_gen || svc.stop_requested)
-                .unwrap_or(true)
-        };
-        if aborted {
-            let _ = child.start_kill();
-            drop(job_arc.take());
-            if pid > 0 {
-                kill_process_tree_fallback(pid);
-            }
-            let guard = self.inner.lock().unwrap();
-            if let Some(svc) = guard.services.iter().find(|s| s.config.id == id) {
-                return Ok(svc.to_view());
-            }
-            return Err("启动已取消".to_string());
-        }
-
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
 
         let view = {
             let mut guard = self.inner.lock().unwrap();
+            let allowed = guard
+                .services
+                .iter()
+                .find(|s| s.config.id == id)
+                .is_some_and(|s| {
+                    restart_still_allowed(s.stop_requested, committed_gen, s.generation)
+                });
+            if !allowed {
+                drop(guard);
+                let _ = child.start_kill();
+                drop(job_arc.take());
+                if pid > 0 {
+                    kill_process_tree_fallback(pid);
+                }
+                tauri::async_runtime::spawn(async move {
+                    let _ = child.wait().await;
+                });
+                return Err("启动已取消".to_string());
+            }
             let svc = guard
                 .services
                 .iter_mut()
                 .find(|s| s.config.id == id)
-                .ok_or_else(|| "服务已被移除".to_string())?;
+                .unwrap();
+            svc.running_config = Some(config.clone());
             svc.status = ServiceStatus::Running;
             svc.pid = if pid > 0 { Some(pid) } else { None };
             svc.started_at = Some(Instant::now());
@@ -559,17 +599,18 @@ impl SupervisorHandle {
             svc.push_log(
                 "SYS",
                 format!(
-                    "[FlashManager] 进程已启动 (PID: {}) [Win32 JobObject 进程树保护已激活]",
-                    pid
+                    "[FlashManager] 进程已启动 (PID: {}) [进程树保护: {}]",
+                    pid,
+                    if svc.job.is_some() {
+                        "JobObject"
+                    } else {
+                        "taskkill 回退"
+                    }
                 ),
             );
             svc.push_log(
                 "SYS",
-                format!(
-                    "[Runner] 命令: {} {}",
-                    program,
-                    final_args.join(" ")
-                ),
+                format!("[Runner] 命令: {} {}", program, final_args.join(" ")),
             );
             svc.to_view()
         };
@@ -642,6 +683,7 @@ impl SupervisorHandle {
                                         format!("[FlashManager] 进程已退出 (退出码: {})", code),
                                     );
                                 } else {
+                                    svc.status = ServiceStatus::Error;
                                     svc.push_log(
                                         "ERR",
                                         format!("[FlashManager] 进程异常退出 (退出码: {})", code),
@@ -658,6 +700,7 @@ impl SupervisorHandle {
                                 }
                             }
                             Err(e) => {
+                                svc.status = ServiceStatus::Error;
                                 svc.push_log("ERR", format!("[FlashManager] 进程等待错误: {}", e));
                             }
                         }
@@ -667,8 +710,7 @@ impl SupervisorHandle {
 
             if should_restart {
                 tokio::time::sleep(Duration::from_millis(1500)).await;
-                let _ = handle_wait
-                    .start_service_with_generation(&svc_id, Some(scheduled_gen));
+                let _ = handle_wait.start_service_with_generation(&svc_id, Some(scheduled_gen));
             }
         });
 
@@ -676,6 +718,12 @@ impl SupervisorHandle {
     }
 
     pub fn stop_service(&self, id: &str) -> Result<ServiceView, String> {
+        let lock = self.lifecycle_lock(id);
+        let _operation = lock.lock().unwrap();
+        self.stop_service_inner(id)
+    }
+
+    fn stop_service_inner(&self, id: &str) -> Result<ServiceView, String> {
         let (pid_opt, job_opt, config, was_running) = {
             let mut guard = self.inner.lock().unwrap();
             let svc = guard
@@ -694,7 +742,14 @@ impl SupervisorHandle {
             svc.cpu_usage = 0.0;
             svc.memory_mb = 0.0;
             svc.port_active = false;
-            (pid_opt, job_opt, svc.config.clone(), was_running)
+            (
+                pid_opt,
+                job_opt,
+                svc.running_config
+                    .clone()
+                    .unwrap_or_else(|| svc.config.clone()),
+                was_running,
+            )
         };
 
         if was_running {
@@ -737,12 +792,14 @@ impl SupervisorHandle {
     }
 
     pub fn restart_service(&self, id: &str) -> Result<ServiceView, String> {
-        let _ = self.stop_service(id)?;
+        let lock = self.lifecycle_lock(id);
+        let _operation = lock.lock().unwrap();
+        self.stop_service_inner(id)?;
         std::thread::sleep(Duration::from_millis(250));
-        self.start_service(id)
+        self.start_service_inner(id, None)
     }
 
-    pub fn batch_action(&self, group: Option<String>, action: &str) -> DashboardSnapshot {
+    pub fn batch_action(&self, group: Option<String>, action: &str) -> BatchActionReport {
         let ids: Vec<String> = {
             let guard = self.inner.lock().unwrap();
             guard
@@ -756,15 +813,24 @@ impl SupervisorHandle {
                 .collect()
         };
 
-        for id in ids {
-            if action == "start" {
-                let _ = self.start_service(&id);
-            } else if action == "stop" {
-                let _ = self.stop_service(&id);
-            }
+        let results = ids
+            .into_iter()
+            .map(|id| {
+                let result = match action {
+                    "start" => self.start_service(&id),
+                    "stop" => self.stop_service(&id),
+                    _ => Err(format!("未知批量操作: {}", action)),
+                };
+                BatchItemResult {
+                    id,
+                    error: result.err(),
+                }
+            })
+            .collect();
+        BatchActionReport {
+            snapshot: self.get_snapshot(),
+            results,
         }
-
-        self.get_snapshot()
     }
 
     pub fn diagnose_service(&self, id: &str, max_lines: usize) -> Result<DiagnoseReport, String> {
@@ -797,7 +863,10 @@ impl SupervisorHandle {
                     .unwrap_or_default()
             )
         } else if svc.status != ServiceStatus::Running {
-            format!("服务 '{}' 当前未处于运行状态 ({:?})", svc.config.name, svc.status)
+            format!(
+                "服务 '{}' 当前未处于运行状态 ({:?})",
+                svc.config.name, svc.status
+            )
         } else {
             format!(
                 "服务 '{}' 进程存活但存在告警或端口未就绪 (port_active={})",
@@ -852,8 +921,8 @@ impl SupervisorHandle {
 
     pub fn upsert_proxy_rule(&self, rule: ProxyRule) -> Result<ProxyRule, String> {
         let rule = proxy::normalize_rule(&rule)?;
+        let mut guard = self.inner.lock().unwrap();
         let (stored, next, path) = {
-            let guard = self.inner.lock().unwrap();
             let mut stored = rule;
             if stored.id.is_empty() {
                 stored.id = new_proxy_id(&guard.proxy_rules);
@@ -869,13 +938,13 @@ impl SupervisorHandle {
             (stored, next, guard.proxy_file.clone())
         };
         proxy::save_rules(&path, &next)?;
-        self.inner.lock().unwrap().proxy_rules = next;
+        guard.proxy_rules = next;
         Ok(stored)
     }
 
     pub fn delete_proxy_rule(&self, id: &str) -> Result<Vec<ProxyRule>, String> {
+        let mut guard = self.inner.lock().unwrap();
         let (next, path) = {
-            let guard = self.inner.lock().unwrap();
             if !guard.proxy_rules.iter().any(|rule| rule.id == id) {
                 return Err("找不到这条反代规则。".to_string());
             }
@@ -888,7 +957,7 @@ impl SupervisorHandle {
             (next, guard.proxy_file.clone())
         };
         proxy::save_rules(&path, &next)?;
-        self.inner.lock().unwrap().proxy_rules = next.clone();
+        guard.proxy_rules = next.clone();
         Ok(next)
     }
 
@@ -1198,18 +1267,24 @@ fn unix_millis() -> u64 {
         .unwrap_or(0)
 }
 
+fn runtime_config_changed(running: &ServiceConfig, desired: &ServiceConfig) -> bool {
+    running.service_type != desired.service_type
+        || running.executable != desired.executable
+        || running.script_path != desired.script_path
+        || running.args != desired.args
+        || running.cwd != desired.cwd
+        || running.env != desired.env
+}
+
 fn load_or_init_configs(config_file: &Path, _base_dir: &Path) -> Vec<ServiceConfig> {
-    // autoStartOnRegister is ignored on this startup load. It only applies when a
-    // services.d file is hot-loaded, or when the register API is called.
-    if config_file.exists() {
-        if let Ok(raw) = std::fs::read_to_string(config_file) {
-            if let Ok(parsed) = serde_json::from_str::<PersistentConfigFile>(&raw) {
-                return parsed.services;
-            }
+    match crate::storage::read_json::<PersistentConfigFile>(config_file) {
+        Ok(Some(file)) => file.services,
+        Ok(None) => Vec::new(),
+        Err(err) => {
+            crate::report_error(&err);
+            Vec::new()
         }
     }
-
-    Vec::new()
 }
 
 pub fn probe_ports(ports: &[Option<u16>]) -> Vec<bool> {
@@ -1304,7 +1379,10 @@ fn insert_env(map: &mut HashMap<String, String>, key: String, value: String) {
 }
 
 fn combine_path(machine: Option<&str>, user: Option<&str>) -> Option<String> {
-    match (machine.filter(|s| !s.is_empty()), user.filter(|s| !s.is_empty())) {
+    match (
+        machine.filter(|s| !s.is_empty()),
+        user.filter(|s| !s.is_empty()),
+    ) {
         (None, None) => None,
         (Some(machine), None) => Some(machine.to_string()),
         (None, Some(user)) => Some(user.to_string()),
@@ -1317,7 +1395,9 @@ fn expand_env_map(map: &mut HashMap<String, String>) {
     for _ in 0..4 {
         let mut changed = false;
         for key in &keys {
-            let Some(raw) = map.get(key).cloned() else { continue };
+            let Some(raw) = map.get(key).cloned() else {
+                continue;
+            };
             if !raw.contains('%') {
                 continue;
             }
@@ -1423,7 +1503,144 @@ fn restrict_token_acl(path: &Path) {
 
 #[cfg(test)]
 mod tests {
-    use super::{probe_ports, restart_still_allowed};
+
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static TEST_ID: AtomicUsize = AtomicUsize::new(0);
+
+    struct Fixture {
+        sup: SupervisorHandle,
+        dir: PathBuf,
+    }
+    impl Fixture {
+        fn new() -> Self {
+            let dir = std::env::temp_dir().join(format!(
+                "flash-supervisor-{}-{}",
+                std::process::id(),
+                TEST_ID.fetch_add(1, Ordering::Relaxed)
+            ));
+            std::fs::create_dir_all(&dir).unwrap();
+            let sup = SupervisorHandle {
+                inner: Arc::new(Mutex::new(SupervisorState {
+                    services: Vec::new(),
+                    sys: System::new(),
+                    config_dir: dir.clone(),
+                    services_d_dir: dir.join("services.d"),
+                    config_file: dir.join("services.json"),
+                    proxy_file: dir.join("proxies.json"),
+                    proxy_rules: Vec::new(),
+                })),
+                token: Arc::new(String::new()),
+                lifecycle_locks: Arc::new(Mutex::new(HashMap::new())),
+            };
+            Self { sup, dir }
+        }
+    }
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            self.sup.batch_action(None, "stop");
+            let _ = std::fs::remove_dir_all(&self.dir);
+        }
+    }
+    fn config(id: &str) -> ServiceConfig {
+        serde_json::from_value(serde_json::json!({
+            "id": id, "name": id, "executable": "flash-manager-nonexistent-test-program.exe"
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn failed_persistence_does_not_publish_changes() {
+        let fixture = Fixture::new();
+        fixture.sup.upsert_service(config("one"), None).unwrap();
+        std::fs::write(fixture.dir.join("services.json"), "broken").unwrap();
+        let mut edited = config("one");
+        edited.name = "changed".into();
+        assert!(fixture.sup.upsert_service(edited, None).is_err());
+        assert!(fixture.sup.delete_service("one").is_err());
+        assert_eq!(fixture.sup.get_snapshot().services[0].name, "one");
+        assert_eq!(
+            std::fs::read_to_string(fixture.dir.join("services.json")).unwrap(),
+            "broken"
+        );
+    }
+
+    #[test]
+    fn batch_reports_each_failure_and_preserves_successes() {
+        let fixture = Fixture::new();
+        fixture.sup.upsert_service(config("one"), None).unwrap();
+        fixture.sup.upsert_service(config("two"), None).unwrap();
+        let report = fixture.sup.batch_action(None, "start");
+        assert_eq!(report.results.len(), 2);
+        assert!(report.results.iter().all(|item| item.error.is_some()));
+        let report = fixture.sup.batch_action(None, "stop");
+        assert!(report.results.iter().all(|item| item.error.is_none()));
+    }
+
+    #[test]
+    fn restart_requirement_survives_snapshot_and_ignores_display_edits() {
+        let original = config("one");
+        let mut instance = ManagedServiceInstance::new(original.clone());
+        instance.status = ServiceStatus::Running;
+        instance.running_config = Some(original);
+        instance.config.name = "renamed".into();
+        assert!(!instance.to_view().needs_restart);
+        instance.config.args.push("new argument".into());
+        assert!(instance.to_view().needs_restart);
+        assert!(instance.to_view().needs_restart);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn concurrent_start_is_idempotent_and_stop_wins_after_completion() {
+        let fixture = Fixture::new();
+        let mut cfg = config("one");
+        cfg.executable = "cmd.exe".into();
+        cfg.args = vec!["/d".into(), "/c".into(), "ping -n 30 127.0.0.1 >nul".into()];
+        fixture.sup.upsert_service(cfg, None).unwrap();
+        let handles: Vec<_> = (0..4)
+            .map(|_| {
+                let sup = fixture.sup.clone();
+                std::thread::spawn(move || {
+                    tauri::async_runtime::block_on(async { sup.start_service("one").unwrap().pid })
+                })
+            })
+            .collect();
+        let pids: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+        assert!(pids[0].is_some());
+        assert!(pids.iter().all(|pid| *pid == pids[0]));
+        fixture.sup.stop_service("one").unwrap();
+        assert_eq!(
+            fixture.sup.get_snapshot().services[0].status,
+            ServiceStatus::Stopped
+        );
+        assert_eq!(fixture.sup.get_snapshot().services[0].pid, None);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn nonzero_exit_is_reported_as_error() {
+        let fixture = Fixture::new();
+        let mut cfg = config("one");
+        cfg.executable = "cmd.exe".into();
+        cfg.args = vec!["/d".into(), "/c".into(), "exit 7".into()];
+        fixture.sup.upsert_service(cfg, None).unwrap();
+        tauri::async_runtime::block_on(async {
+            fixture.sup.start_service("one").unwrap();
+        });
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let status = fixture.sup.get_snapshot().services[0].status.clone();
+            if status == ServiceStatus::Error {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "nonzero exit did not become Error"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
 
     #[test]
     fn manual_stop_blocks_auto_restart() {

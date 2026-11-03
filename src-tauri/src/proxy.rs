@@ -78,19 +78,10 @@ pub fn load_rules(path: &Path) -> Vec<ProxyRule> {
 }
 
 pub fn save_rules(path: &Path, rules: &[ProxyRule]) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|err| {
-            format!("无法创建配置目录 {}: {}", parent.display(), err)
-        })?;
-    }
-    let payload = ProxyFile {
-        version: "1".to_string(),
-        rules: rules.to_vec(),
-    };
-    let json = serde_json::to_string_pretty(&payload)
-        .map_err(|err| format!("反代配置序列化失败: {}", err))?;
-    std::fs::write(path, json)
-        .map_err(|err| format!("写入反代配置失败 {}: {}", path.display(), err))
+    crate::storage::write_json(
+        path,
+        &ProxyFile { version: "1".to_string(), rules: rules.to_vec() },
+    )
 }
 
 pub fn normalize_rule(rule: &ProxyRule) -> Result<ProxyRule, String> {
