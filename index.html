@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#FFF8F3" />
+    <meta name="theme-color" content="#fff7f2" />
     <meta
       name="description"
       content="FlashManager — 本地软件与服务管理平台。把本地服务养在一间软乎乎的小屋里。"
@@ -14,11 +14,107 @@
     <link
       href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Nunito:wght@400;500;600;700;800&family=ZCOOL+KuaiLe&display=swap"
       rel="stylesheet"
+      media="print"
+      onload="this.media = 'all'"
     />
     <title>守饭人</title>
+    <script>
+      try {
+        if (localStorage.getItem("fm-theme") === "night") {
+          document.documentElement.dataset.startupTheme = "night";
+        }
+      } catch {
+        // The loading screen can use the default colors without storage.
+      }
+    </script>
+    <style>
+      /* Inline so the shell can paint before React and the web fonts load. */
+      .fm-startup {
+        --startup-bg: #fff7f2;
+        --startup-surface: #fffaf8;
+        --startup-line: #f1e2ea;
+        --startup-placeholder: #f3e6ee;
+        --startup-ink: #7b6886;
+        position: fixed;
+        inset: 0;
+        display: grid;
+        grid-template: 62px 1fr / clamp(140px, 19vw, 216px) minmax(0, 1fr);
+        overflow: hidden;
+        background: var(--startup-bg);
+      }
+      [data-startup-theme="night"] .fm-startup {
+        --startup-bg: #241b2d;
+        --startup-surface: #30253a;
+        --startup-line: #463550;
+        --startup-placeholder: #45354e;
+        --startup-ink: #b6a3c0;
+      }
+      .fm-startup-header {
+        grid-column: 1 / -1;
+        display: flex;
+        align-items: center;
+        padding: 0 16px;
+        border-bottom: 1px solid var(--startup-line);
+        background: var(--startup-surface);
+        color: var(--startup-ink);
+        font: 600 14px/1.5 "Segoe UI", "Microsoft YaHei UI", sans-serif;
+      }
+      .fm-startup-sidebar {
+        padding: 16px 12px;
+        border-right: 1px solid var(--startup-line);
+        background: var(--startup-surface);
+      }
+      .fm-startup-main { padding: 24px 22px; }
+      .fm-startup-bar {
+        display: block;
+        height: 12px;
+        margin-bottom: 14px;
+        border-radius: 999px;
+        background: var(--startup-placeholder);
+      }
+      .fm-startup-title { width: min(220px, 85%); height: 26px; }
+      .fm-startup-subtitle { width: min(330px, 95%); }
+      .fm-startup-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 350px), 1fr));
+        gap: 10px;
+        margin-top: 28px;
+      }
+      .fm-startup-card {
+        padding: 16px 14px 2px;
+        border: 1px solid var(--startup-line);
+        border-radius: 16px;
+        background: var(--startup-surface);
+      }
+      .fm-startup-card .fm-startup-bar:first-child { width: 62%; }
+      .fm-startup-card .fm-startup-bar:last-child { height: 24px; }
+      @media (max-width: 640px) {
+        .fm-startup { grid-template-columns: minmax(0, 1fr); }
+        .fm-startup-sidebar { display: none; }
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <div id="root">
+      <div class="fm-startup">
+        <div class="fm-startup-header" role="status">正在打开守饭人…</div>
+        <div class="fm-startup-sidebar" aria-hidden="true">
+          <span class="fm-startup-bar"></span>
+          <span class="fm-startup-bar"></span>
+          <span class="fm-startup-bar"></span>
+        </div>
+        <div class="fm-startup-main" aria-hidden="true">
+          <span class="fm-startup-bar fm-startup-title"></span>
+          <span class="fm-startup-bar fm-startup-subtitle"></span>
+          <div class="fm-startup-grid">
+            <div class="fm-startup-card"><span class="fm-startup-bar"></span><span class="fm-startup-bar"></span></div>
+            <div class="fm-startup-card"><span class="fm-startup-bar"></span><span class="fm-startup-bar"></span></div>
+            <div class="fm-startup-card"><span class="fm-startup-bar"></span><span class="fm-startup-bar"></span></div>
+            <div class="fm-startup-card"><span class="fm-startup-bar"></span><span class="fm-startup-bar"></span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/startup.ts"></script>
   </body>
 </html>

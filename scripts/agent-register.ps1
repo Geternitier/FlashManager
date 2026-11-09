@@ -8,8 +8,17 @@ param(
 
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path $PSScriptRoot -Parent
+$runtime = Join-Path $repoRoot "runtime"
+$runtimeConfig = Join-Path $runtime "config"
+$legacyConfig = Join-Path $repoRoot "config"
+$dataRoot = if ((Test-Path -LiteralPath $runtimeConfig -PathType Container) -or
+    -not (Test-Path -LiteralPath $legacyConfig -PathType Container)) {
+    $runtime
+} else {
+    $repoRoot
+}
 $cli = @(
-    (Join-Path $repoRoot "flash-manager-cli.exe"),
+    (Join-Path $dataRoot "flash-manager-cli.exe"),
     (Join-Path $repoRoot "src-tauri\target\release\flash-manager-cli.exe")
 ) | Where-Object { Test-Path $_ } | Select-Object -First 1
 
@@ -21,7 +30,7 @@ if ($cli) {
     exit $LASTEXITCODE
 }
 
-$tokenFile = Join-Path $repoRoot "config\agent.token"
+$tokenFile = Join-Path $dataRoot "config\agent.token"
 if (-not (Test-Path $tokenFile)) {
     throw "找不到 $tokenFile。请先启动一次 FlashManager。"
 }
@@ -50,5 +59,5 @@ try {
         Write-Host "   诊断   : $($response.diagnose.summary)" -ForegroundColor Cyan
     }
 } catch {
-    throw "FlashManager 未接受注册。请确认程序在运行，且 config\agent.token 属于这次启动。原始错误: $($_.Exception.Message)"
+    throw "FlashManager 未接受注册。请确认程序在运行，且 $tokenFile 属于这次启动。原始错误: $($_.Exception.Message)"
 }

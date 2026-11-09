@@ -1,9 +1,18 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { readFileSync, statSync } from "node:fs";
 
 const host = process.env.TAURI_DEV_HOST;
+const runtimeConfig = new URL("./runtime/config/", import.meta.url);
+const legacyConfig = new URL("./config/", import.meta.url);
+
+function readAgentToken(): string {
+  const config = statSync(runtimeConfig, { throwIfNoEntry: false })?.isDirectory() ||
+    !statSync(legacyConfig, { throwIfNoEntry: false })?.isDirectory()
+    ? runtimeConfig
+    : legacyConfig;
+  return readFileSync(new URL("agent.token", config), "utf8").trim();
+}
 
 export default defineConfig(async () => ({
   plugins: [react(), {
@@ -20,7 +29,7 @@ export default defineConfig(async () => ({
           res.statusCode = 403; res.end("Only local same-origin development requests are allowed."); return;
         }
         try {
-          const token = readFileSync(fileURLToPath(new URL("./config/agent.token", import.meta.url)), "utf8").trim();
+          const token = readAgentToken();
           if (!token) throw new Error("Empty token");
           req.headers.authorization = `Bearer ${token}`;
           next();
@@ -36,6 +45,12 @@ export default defineConfig(async () => ({
     port: 1420,
     strictPort: true,
     proxy: { "/api/v1": { target: "http://127.0.0.1:19527" } },
+    fs: {
+      deny: [
+        ".env", ".env.*", "*.{crt,pem}", "**/.git/**",
+        "**/runtime/**", "**/config/**", "**/backups/**",
+      ],
+    },
     host: host || false,
     hmr: host
       ? {
@@ -45,7 +60,7 @@ export default defineConfig(async () => ({
         }
       : undefined,
     watch: {
-      ignored: ["**/src-tauri/**"],
+      ignored: ["**/src-tauri/**", "**/runtime/**", "**/config/**", "**/backups/**"],
     },
   },
 }));

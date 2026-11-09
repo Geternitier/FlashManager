@@ -1,0 +1,149 @@
+/* ==========================================================================
+   App responsive (container queries; the app is embedded)
+   ========================================================================== */
+
+@container fmapp (max-width: 1080px) {
+  .fm-side {
+    width: 204px;
+  }
+
+  .fm-omni {
+    width: min(280px, 30%);
+  }
+
+  .fm-hero h1 {
+    font-size: 23px;
+  }
+
+  .fm-hero-mascot {
+    width: 70px;
+    height: 70px;
+  }
+
+  .fm-hero-actions .fm-btn {
+    height: 32px;
+    padding: 0 10px;
+    font-size: 10.5px;
+  }
+}
+
+@container fmapp (max-width: 940px) {
+  .fm-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@container fmapp (max-width: 900px) {
+  .fm-topbar {
+    gap: 6px;
+    padding: 0 10px;
+  }
+
+  .fm-live-pill,
+  .fm-brand-text small {
+    display: none;
+  }
+
+  .fm-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .fm-omni {
+    width: auto;
+    flex: 1;
+    margin: 0 4px;
+  }
+
+  .fm-omni > span {
+    font-size: 10.5px;
+  }
+
+  .fm-omni kbd {
+    display: none;
+  }
+
+  .fm-moe span {
+    display: none;
+  }
+
+  .fm-side {
+    width: 184px;
+    padding-inline: 8px;
+  }
+
+  .fm-greet-mascot {
+    width: 48px;
+    height: 48px;
+  }
+
+  .fm-greet-copy b {
+    font-size: 11px;
+  }
+
+  .fm-scroll {
+    padding: 16px 16px 24px;
+  }
+
+  .fm-hero h1 {
+    font-size: 19px;
+  }
+
+  .fm-searchbox {
+    width: 150px;
+  }
+
+  .fm-sortbtn span {
+    display: none;
+  }
+
+  .fm-drawer-panel {
+    width: 380px;
+  }
+}
+
+@container fmapp (max-width: 720px) {
+  .fm-side {
+    display: none;
+  }
+
+  .fm-omni > span {
+    display: none;
+  }
+
+  .fm-hero {
+    flex-direction: column;
+  }
+
+  .fm-hero-side {
+    align-self: flex-end;
+    margin-top: -46px;
+  }
+
+  .fm-hero-mascot {
+    display: none;
+  }
+
+  .fm-hero-actions {
+    flex-direction: row;
+  }
+
+  .fm-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .fm-toolbar-right {
+    justify-content: space-between;
+  }
+
+  .fm-searchbox {
+    flex: 1;
+    width: auto;
+  }
+
+  .fm-drawer-panel {
+    width: 100%;
+    max-width: 100%;
+    border-radius: 0;
+  }
+}

@@ -21,7 +21,8 @@ use crate::supervisor::SupervisorHandle;
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Manager, RunEvent, State, WebviewUrl, WebviewWindowBuilder, WindowEvent,
+    AppHandle, Manager, RunEvent, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+    WindowEvent,
 };
 
 static QUIT_REQUESTED: AtomicBool = AtomicBool::new(false);
@@ -38,17 +39,25 @@ pub fn resolve_data_root() -> PathBuf {
         return exe_dir;
     }
 
-    exe_dir
+    let project_root = exe_dir
         .parent()
         .and_then(|target_dir| target_dir.parent())
         .and_then(|parent| {
             if parent.file_name().and_then(|name| name.to_str()) == Some("src-tauri") {
-                parent.parent().map(|root| root.to_path_buf())
+                parent.parent()
             } else {
-                Some(parent.to_path_buf())
+                Some(parent)
             }
-        })
-        .unwrap_or(exe_dir)
+        });
+    let Some(project_root) = project_root else {
+        return exe_dir;
+    };
+    let runtime = project_root.join("runtime");
+    if runtime.join("config").is_dir() || !project_root.join("config").is_dir() {
+        runtime
+    } else {
+        project_root.to_path_buf()
+    }
 }
 
 fn launched_from_cargo_target(exe_dir: &Path) -> bool {
@@ -353,21 +362,56 @@ fn hibernate_to_tray(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+fn show_startup_window(window: WebviewWindow) -> Result<(), String> {
+    reveal_startup_window(&window).map_err(|error| error.to_string())
+}
+
+fn reveal_startup_window(window: &WebviewWindow) -> tauri::Result<()> {
+    if window.label() == "main" && !window.is_visible()? && !window.is_minimized()? {
+        window.show()?;
+        window.set_focus()?;
+    }
+    Ok(())
+}
+
+fn schedule_startup_fallback(window: WebviewWindow) {
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        let _ = reveal_startup_window(&window);
+    });
+}
+
 /// Restores or recreates the main WebView2 window when waking up from Tray Hibernation.
 pub fn show_or_recreate_main_window(app: &AppHandle) {
     if let Some(win) = app.get_webview_window("main") {
-        let _ = win.unminimize();
-        let _ = win.show();
-        let _ = win.set_focus();
+        if win.is_visible().unwrap_or(false) || win.is_minimized().unwrap_or(false) {
+            let _ = win.unminimize();
+            let _ = win.show();
+            let _ = win.set_focus();
+        }
         return;
     }
 
-    let _ = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+    let mut builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
         .title("守饭人")
         .inner_size(1240.0, 800.0)
         .min_inner_size(980.0, 640.0)
         .center()
-        .build();
+        .visible(false);
+    if let Some(color) = app
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|win| win.label == "main")
+        .and_then(|win| win.background_color)
+    {
+        builder = builder.background_color(color);
+    }
+    if let Ok(window) = builder.build() {
+        schedule_startup_fallback(window);
+    }
 }
 
 fn setup_system_tray(app: &AppHandle) -> tauri::Result<()> {
@@ -453,6 +497,9 @@ pub fn run() {
         .manage(supervisor.clone())
         .setup(move |app| {
             let _ = APP_HANDLE.set(app.handle().clone());
+            if let Some(window) = app.get_webview_window("main") {
+                schedule_startup_fallback(window);
+            }
             spawn_agent_http_server(supervisor.clone());
             let _ = setup_system_tray(app.handle());
             Ok(())
@@ -485,6 +532,7 @@ pub fn run() {
             delete_proxy_rule,
             preview_proxy_rules,
             apply_proxy_rules,
+            show_startup_window,
             hibernate_to_tray
         ])
         .build(tauri::generate_context!())

@@ -11,20 +11,16 @@ src-tauri/target/
 *.exp
 *.rlib
 
-# 文档与界面原型
-*.md
-ui-preview.html
-docs/
-design/
-
 # 本地演示服务（不参与构建）
 demo-services/
 
 # 本地编辑器与 Agent 资料
 .cursor/
 
-# 本地运行配置与密钥
+# 本地运行配置、密钥与部署备份
+/runtime/
 config/
+backups/
 flashmanager-error.txt
 *.log
 

@@ -1,0 +1,363 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-body: "Nunito", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+  --font-display: "ZCOOL KuaiLe", "Baloo 2", "YouYuan", "Microsoft YaHei UI", sans-serif;
+  --font-rounded: "Baloo 2", "Nunito", "Segoe UI", "Microsoft YaHei UI", sans-serif;
+  --font-mono: "Cascadia Code", "JetBrains Mono", "Consolas", "Microsoft YaHei UI", monospace;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --fm-avatar: url("/avatar.webp");
+  --fm-avatar-hero: url("/hero.webp");
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  background: #fff7f2;
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+.fm-menu-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 129;
+}
+
+.fm-live-pill.is-off {
+  color: var(--fm-danger-strong);
+  background: var(--fm-danger-soft);
+  border-color: color-mix(in srgb, var(--fm-danger) 24%, transparent);
+}
+
+.fm-live-pill.is-off i {
+  background: var(--fm-danger);
+  animation: none;
+}
+
+/* ==========================================================================
+   FlashManager app prototype
+   ========================================================================== */
+
+.fm-app {
+  --fm-bg: #fff7f2;
+  --fm-bg-2: #fff1f6;
+  --fm-surface: #ffffff;
+  --fm-surface-2: #fffaf8;
+  --fm-side: rgba(255, 252, 249, 0.92);
+  --fm-topbar: rgba(255, 250, 247, 0.9);
+  --fm-ink: #45364f;
+  --fm-ink-2: #6f5c7a;
+  --fm-muted: #7b6886;
+  --fm-faint: #9b88a5;
+  --fm-line: #f1e2ea;
+  --fm-line-2: #e8d5e0;
+  --fm-inset: #ffffff;
+
+  --fm-pink: #e85d8f;
+  --fm-pink-strong: #c93f73;
+  --fm-pink-deep: #b93667;
+  --fm-pink-soft: #ffe3ee;
+  --fm-pink-wash: #fff1f6;
+
+  --fm-lilac: #8e6fe8;
+  --fm-lilac-strong: #6a4bc4;
+  --fm-lilac-soft: #efe9ff;
+
+  --fm-mint: #2fa98f;
+  --fm-mint-strong: #177a66;
+  --fm-mint-soft: #ddf6ef;
+
+  --fm-sky: #3d8fd6;
+  --fm-sky-strong: #1f6fa8;
+  --fm-sky-soft: #e2f1ff;
+
+  --fm-butter: #d99a2b;
+  --fm-butter-strong: #8b5a00;
+  --fm-butter-soft: #fff1ce;
+
+  --fm-danger: #c63b55;
+  --fm-danger-strong: #a82f4a;
+  --fm-danger-soft: #ffe5ea;
+
+  --fm-console: #2a2133;
+  --fm-console-2: #241c2d;
+  --fm-console-ink: #f5eaf3;
+  --fm-console-muted: #a995b4;
+
+  --fm-glow-a: rgba(255, 227, 238, 0.62);
+  --fm-glow-b: rgba(239, 233, 255, 0.55);
+  --fm-glow-c: rgba(221, 246, 239, 0.4);
+
+  --fm-shadow-xs: 0 1px 2px rgba(90, 58, 82, 0.05);
+  --fm-shadow-sm: 0 3px 10px rgba(120, 80, 110, 0.06);
+  --fm-shadow-md: 0 14px 30px -18px rgba(120, 70, 110, 0.3);
+  --fm-shadow-lg: 0 28px 60px -28px rgba(100, 55, 95, 0.38);
+
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100vh;
+  height: 100dvh;
+  color: var(--fm-ink);
+  background: var(--fm-bg);
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  line-height: 1.5;
+  overflow: hidden;
+  container: fmapp / inline-size;
+  isolation: isolate;
+}
+
+.fm-app[data-theme="night"] {
+  --fm-bg: #241b2d;
+  --fm-bg-2: #2b2035;
+  --fm-surface: #30253a;
+  --fm-surface-2: #382b44;
+  --fm-side: rgba(42, 32, 51, 0.94);
+  --fm-topbar: rgba(39, 29, 48, 0.92);
+  --fm-ink: #f7ecf4;
+  --fm-ink-2: #d9c8de;
+  --fm-muted: #b6a3c0;
+  --fm-faint: #927fa0;
+  --fm-line: #463550;
+  --fm-line-2: #584465;
+  --fm-inset: rgba(255, 255, 255, 0.05);
+
+  --fm-pink: #f27ba6;
+  --fm-pink-strong: #ff9dc0;
+  --fm-pink-deep: #ffb3cc;
+  --fm-pink-soft: #4a2a3b;
+  --fm-pink-wash: #3a2734;
+
+  --fm-lilac: #b9a2ff;
+  --fm-lilac-strong: #cbb8ff;
+  --fm-lilac-soft: #3b3056;
+
+  --fm-mint: #77d9c1;
+  --fm-mint-strong: #9be8d7;
+  --fm-mint-soft: #1f3d36;
+
+  --fm-sky: #8cc8ff;
+  --fm-sky-strong: #a9d8ff;
+  --fm-sky-soft: #22384d;
+
+  --fm-butter: #f4be4f;
+  --fm-butter-strong: #ffd98e;
+  --fm-butter-soft: #463922;
+
+  --fm-danger: #ff8fa3;
+  --fm-danger-strong: #ffb3c0;
+  --fm-danger-soft: #4a2733;
+
+  --fm-console: #1a1421;
+  --fm-console-2: #17111d;
+  --fm-console-ink: #f5eaf3;
+  --fm-console-muted: #9c87a8;
+
+  --fm-glow-a: rgba(125, 65, 98, 0.28);
+  --fm-glow-b: rgba(92, 70, 140, 0.25);
+  --fm-glow-c: rgba(47, 110, 96, 0.14);
+
+  --fm-shadow-sm: 0 3px 12px rgba(0, 0, 0, 0.16);
+  --fm-shadow-md: 0 16px 34px -18px rgba(0, 0, 0, 0.55);
+  --fm-shadow-lg: 0 30px 64px -28px rgba(0, 0, 0, 0.65);
+}
+
+.fm-app *,
+.fm-app *::before,
+.fm-app *::after {
+  box-sizing: border-box;
+}
+
+:where(.fm-app) button,
+:where(.fm-app) input,
+:where(.fm-app) select,
+:where(.fm-app) textarea {
+  font: inherit;
+  color: inherit;
+}
+
+:where(.fm-app) button {
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.fm-app :focus-visible {
+  outline: 2px solid var(--fm-lilac);
+  outline-offset: 2px;
+}
+
+.fm-app ::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+.fm-app ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.fm-app ::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fm-ink) 18%, transparent);
+  background-clip: padding-box;
+}
+
+.fm-app ::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--fm-ink) 30%, transparent);
+  background-clip: padding-box;
+}
+
+.fm-app .i {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* --------------------------------------------------------------------------
+   Mascot portrait — shared by every avatar slot in the app
+   -------------------------------------------------------------------------- */
+
+.mascot-slot {
+  display: inline-grid;
+  place-items: center;
+  width: var(--mascot-size, 80px);
+  height: var(--mascot-size, 80px);
+  line-height: 0;
+  pointer-events: none;
+}
+
+.mascot-photo {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border: 1px solid color-mix(in srgb, #6c8fde 26%, transparent);
+  border-radius: 50%;
+  background: radial-gradient(circle at 34% 22%, #ffffff 0%, #eef4ff 36%, #f0e9ff 68%, #ffe3ee 100%);
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 255, 255, 0.58),
+    0 5px 12px -5px rgba(75, 85, 140, 0.28);
+  overflow: hidden;
+  animation: mascotFloat 5.4s ease-in-out infinite;
+}
+
+.mascot-photo .mascot-img {
+  position: absolute;
+  inset: -1%;
+  background-image: var(--fm-avatar);
+  background-size: cover;
+  background-position: 50% 44%;
+  background-repeat: no-repeat;
+}
+
+.mascot-photo::after {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  top: 4%;
+  right: 4%;
+  display: grid;
+  place-items: center;
+  width: 25%;
+  min-width: 14px;
+  aspect-ratio: 1;
+  border: 1.5px solid rgba(255, 255, 255, 0.95);
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 6px -2px rgba(75, 85, 140, 0.4);
+  font-family: var(--font-rounded);
+  font-size: 7.5px;
+  font-weight: 800;
+  line-height: 1;
+  opacity: 0;
+  transform: scale(0.7);
+  transition: opacity 0.2s ease, transform 0.25s var(--ease-spring);
+}
+
+.mascot-photo[data-mood="happy"]::after {
+  content: "✦";
+  color: #e85d8f;
+  opacity: 1;
+  transform: scale(1);
+}
+
+.mascot-photo[data-mood="sleep"]::after {
+  content: "z";
+  color: #4d74c8;
+  background: #eef4ff;
+  opacity: 1;
+  transform: scale(1);
+}
+
+.mascot-photo[data-mood="worry"]::after {
+  content: "!";
+  color: #8b5a00;
+  background: #fff1ce;
+  opacity: 1;
+  transform: scale(1);
+}
+
+.mascot-photo[data-mood="sleep"] .mascot-img {
+  filter: saturate(0.82) brightness(0.99);
+}
+
+.mascot-photo[data-mood="worry"] .mascot-img {
+  filter: saturate(0.92);
+}
+
+.mascot-slot[data-avatar="full"] {
+  width: var(--mascot-size, 150px);
+  height: calc(var(--mascot-size, 150px) * 1.38);
+}
+
+.mascot-slot[data-avatar="full"] .mascot-photo {
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  overflow: visible;
+  animation: mascotFloat 6.2s ease-in-out infinite;
+  filter: drop-shadow(0 16px 18px rgba(54, 70, 122, 0.16));
+}
+
+.mascot-slot[data-avatar="full"] .mascot-photo .mascot-img {
+  inset: 0;
+  background-image: var(--fm-avatar-hero);
+  background-size: contain;
+  background-position: center bottom;
+}
+
+.mascot-slot[data-avatar="full"] .mascot-photo::before,
+.mascot-slot[data-avatar="full"] .mascot-photo::after {
+  display: none;
+}
+
+.fm-brand-avatar .mascot-photo::after,
+.fm-avatar .mascot-photo::after {
+  display: none;
+}
+
+@keyframes mascotFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+.fm-app .mascot-slot {
+  --mascot-size: 40px;
+}

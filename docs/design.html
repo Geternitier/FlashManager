@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>守饭人 · 前端设计</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --page: #fff7f2;
+      --paper: #fff;
+      --ink: #45364f;
+      --muted: #7b6886;
+      --line: #f1e2ea;
+      --accent: #b93667;
+      --rose: #ffe3ee;
+      --lilac: #efe9ff;
+      --mint: #ddf6ef;
+      font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; color: var(--ink); background: var(--page); line-height: 1.65; }
+    a { color: var(--accent); text-underline-offset: .2em; }
+    a:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+    .wrap { width: min(1080px, calc(100% - 40px)); margin: auto; }
+    .top { border-bottom: 1px solid var(--line); background: var(--paper); }
+    .top .wrap, .brand, .top nav { display: flex; align-items: center; gap: 14px; }
+    .top .wrap { justify-content: space-between; flex-wrap: wrap; padding-block: 13px; }
+    .brand { font-weight: 700; }
+    .brand img { width: 34px; height: 34px; border-radius: 50%; background: var(--lilac); }
+    .top nav { flex-wrap: wrap; font-size: .9rem; }
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(140px, 230px);
+      align-items: center;
+      gap: 24px;
+      margin-block: 30px 42px;
+      padding: clamp(24px, 5vw, 56px);
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      background: radial-gradient(ellipse at 86% 18%, var(--lilac), transparent 53%),
+        linear-gradient(120deg, var(--paper), #fff1f6);
+    }
+    .hero img { display: block; width: 100%; max-height: 190px; object-fit: contain; }
+    .label { margin: 0 0 6px; color: var(--accent); font-size: .78rem; font-weight: 700; letter-spacing: .08em; }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { margin-bottom: 12px; font-size: clamp(2rem, 5vw, 3.25rem); line-height: 1.18; }
+    h2 { margin-bottom: 12px; font-size: 1.55rem; line-height: 1.3; }
+    h3 { margin-bottom: 8px; font-size: 1rem; }
+    p:last-child { margin-bottom: 0; }
+    section { margin-bottom: 38px; }
+    figure { margin: 0; }
+    figcaption, .note, footer { color: var(--muted); font-size: .9rem; }
+    figcaption { margin-top: 8px; }
+    .pair, .principles { display: grid; gap: 14px; }
+    .pair { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .principles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .panel { padding: 16px; border: 1px solid var(--line); border-radius: 16px; background: var(--paper); }
+    .panel p { font-size: .94rem; }
+    .sample {
+      --sample-bg: #fff7f2;
+      --sample-card: #fffaf8;
+      --sample-line: #f1e2ea;
+      --sample-text: #45364f;
+      --sample-mark: #f3e6ee;
+      color: var(--sample-text);
+      background: var(--sample-bg);
+      border: 1px solid var(--sample-line);
+      border-radius: 16px;
+      overflow: hidden;
+    }
+    .sample.night {
+      --sample-bg: #241b2d;
+      --sample-card: #30253a;
+      --sample-line: #463550;
+      --sample-text: #f7ecf4;
+      --sample-mark: #45354e;
+    }
+    .sample-top { padding: 10px 14px; border-bottom: 1px solid var(--sample-line); background: var(--sample-card); font-weight: 650; }
+    .sample-layout { display: grid; grid-template-columns: minmax(94px, 26%) minmax(0, 1fr); min-height: 164px; }
+    .sample-side { padding: 12px 10px; border-right: 1px solid var(--sample-line); background: var(--sample-card); }
+    .sample-side span { display: block; margin-bottom: 8px; font-size: .8rem; }
+    .sample-main { padding: 12px; }
+    .cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .sample-card { padding: 10px; border: 1px solid var(--sample-line); border-radius: 12px; background: var(--sample-card); font-size: .84rem; }
+    .badge { display: block; width: fit-content; margin-top: 5px; padding: 0 6px; border-radius: 999px; font-size: .72rem; }
+    .running { color: #177a66; background: var(--mint); }
+    .stopped { color: var(--ink); background: var(--lilac); }
+    .bar { display: block; height: 9px; margin-bottom: 9px; border-radius: 999px; background: var(--sample-mark); }
+    .bar.short { width: 65%; }
+    .bar.heading { width: 72%; height: 18px; }
+    .sample-card .bar:last-child { margin-bottom: 0; }
+    .palette { width: 100%; border-collapse: collapse; font-size: .92rem; }
+    .palette th, .palette td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; }
+    .palette tbody tr:last-child td { border-bottom: 0; }
+    .swatch { display: inline-block; width: 14px; height: 14px; margin-right: 6px; border: 1px solid #927fa0; border-radius: 4px; vertical-align: -.12em; }
+    code { font-family: "Cascadia Code", Consolas, monospace; font-size: .88em; }
+    .state-list { margin: 0; padding-left: 1.3rem; }
+    .state-list li + li { margin-top: 8px; }
+    footer { padding-block: 16px 28px; border-top: 1px solid var(--line); }
+    @media (max-width: 720px) {
+      .hero, .pair, .principles { grid-template-columns: 1fr; }
+      .hero img { width: min(160px, 70%); max-height: 130px; justify-self: start; }
+    }
+  </style>
+</head>
+<body>
+  <header class="top">
+    <div class="wrap">
+      <div class="brand"><img src="../public/avatar.webp" alt="" width="34" height="34">守饭人</div>
+      <nav aria-label="项目文档">
+        <a href="../README.md">项目说明</a>
+        <a href="ARCH.md">架构</a>
+        <a href="../AGENT-INTEGRATION.md">Agent 接入</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <div class="hero">
+      <div>
+        <p class="label">FLASHMANAGER · SUGAR STAR</p>
+        <h1>守饭人前端设计</h1>
+        <p>用温和的视觉语言呈现本机服务。状态、操作结果和错误原因始终靠近对应服务，吉祥物本鱼负责引导和反馈。</p>
+      </div>
+      <img src="../public/hero.webp" alt="吉祥物本鱼">
+    </div>
+
+    <section aria-labelledby="layout">
+      <h2 id="layout">界面布局与启动状态</h2>
+      <div class="pair">
+        <figure>
+          <div class="sample">
+            <div class="sample-top">守饭人 <small>· 守护中</small></div>
+            <div class="sample-layout">
+              <div class="sample-side">
+                <span><strong>总览</strong></span><span>正在运行</span><span>需要关注</span><span>反向代理</span>
+              </div>
+              <div class="sample-main">
+                <h3>服务总览</h3>
+                <div class="cards">
+                  <div class="sample-card"><strong>本地 API</strong><span class="badge running">运行中</span></div>
+                  <div class="sample-card"><strong>Nginx</strong><span class="badge stopped">已停止</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <figcaption>樱昼布局示意。顶栏承载全局操作，侧栏用于状态与分组筛选。</figcaption>
+        </figure>
+        <figure>
+          <div class="sample night">
+            <div class="sample-top">正在打开守饭人…</div>
+            <div class="sample-layout" aria-hidden="true">
+              <div class="sample-side"><span class="bar"></span><span class="bar"></span><span class="bar short"></span></div>
+              <div class="sample-main">
+                <span class="bar heading"></span>
+                <div class="cards">
+                  <div class="sample-card"><span class="bar short"></span><span class="bar"></span></div>
+                  <div class="sample-card"><span class="bar short"></span><span class="bar"></span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <figcaption>樱夜骨架示意。窗口显示时已有静态内容，随后由 React 接管。</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section aria-labelledby="components">
+      <h2 id="components">页面与交互</h2>
+      <div class="principles">
+        <article class="panel">
+          <h3>总览与服务卡片</h3>
+          <p>主区先呈现摘要，再提供搜索、筛选、排序和卡片／列表视图。卡片保留服务名、状态和常用操作，网格随容器变窄收成单列。</p>
+        </article>
+        <article class="panel">
+          <h3>详情抽屉</h3>
+          <p>概览、实时日志、配置和健康诊断放在同一个抽屉。日志支持过滤、跟随滚动及编码切换。修改启动配置后就地标记「待重启」。</p>
+        </article>
+        <article class="panel">
+          <h3>反向代理</h3>
+          <p>先选择网关和目标服务，再填写监听地址与路径。保存规则后可预览和应用，区分配置校验、Nginx 重载与访问结果。</p>
+        </article>
+      </div>
+    </section>
+
+    <section aria-labelledby="tokens">
+      <h2 id="tokens">配色与反馈</h2>
+      <div class="pair">
+        <div class="panel">
+          <table class="palette">
+            <thead><tr><th scope="col">用途</th><th scope="col">樱昼</th><th scope="col">樱夜</th></tr></thead>
+            <tbody>
+              <tr><td>页面背景</td><td><i class="swatch" style="background:#fff7f2"></i><code>#FFF7F2</code></td><td><i class="swatch" style="background:#241b2d"></i><code>#241B2D</code></td></tr>
+              <tr><td>卡片表面</td><td><i class="swatch" style="background:#fff"></i><code>#FFFFFF</code></td><td><i class="swatch" style="background:#30253a"></i><code>#30253A</code></td></tr>
+              <tr><td>主要文字</td><td><i class="swatch" style="background:#45364f"></i><code>#45364F</code></td><td><i class="swatch" style="background:#f7ecf4"></i><code>#F7ECF4</code></td></tr>
+              <tr><td>品牌强调</td><td><i class="swatch" style="background:#c93f73"></i><code>#C93F73</code></td><td><i class="swatch" style="background:#ff9dc0"></i><code>#FF9DC0</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="panel">
+          <ul class="state-list">
+            <li>运行、停止、异常和待重启都显示文字。批量操作反馈逐项结果，失败时给出原因。</li>
+            <li>启动骨架遵循保存的主题。React 接管后由仪表盘呈现载入、空列表和连接异常。</li>
+            <li><kbd>Ctrl</kbd> + <kbd>K</kbd> 打开命令面板，<kbd>?</kbd> 查看快捷键，<kbd>Esc</kbd> 关闭浮层。</li>
+            <li>萌度固定为满萌度。设置中的「减少动效」与系统动效偏好用于降低装饰动画。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="wrap">
+    样式见 <a href="../src/styles.css">styles.css</a>，窗口启动见 <a href="../index.html">index.html</a> 和
+    <a href="../src/startup.ts">startup.ts</a>，原始角色素材见 <a href="../assets/source/MainChara.png">MainChara.png</a>。
+  </footer>
+</body>
+</html>

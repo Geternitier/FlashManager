@@ -1,45 +1,30 @@
 import { useDialogFocus } from "./useDialogFocus";
 import { parseServiceArgs } from "./serviceArgs";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode } from "react";
+import type { MouseEvent as ReactMouseEvent } from "react";
 import {
   Activity,
   AlertTriangle,
-  ArrowRight,
   ArrowUpDown,
-  Bell,
   Check,
-  ChevronDown,
-  Clock,
-  Command,
   Copy,
-  Cpu,
   ExternalLink,
   Folder,
-  Globe,
   Keyboard,
-  Layers,
   LayoutGrid,
   List,
-  Loader2,
-  MemoryStick,
   Moon,
-  MoreHorizontal,
-  Pause,
   Pencil,
   Play,
   Plus,
   RefreshCw,
   Search,
   Settings,
-  Shield,
   Sparkles,
   Square,
   Sun,
-  Route,
   Terminal,
   Trash2,
-  X,
 } from "lucide-react";
 import {
   previewDetectedService,
@@ -57,7 +42,20 @@ import {
   startService,
   stopService,
 } from "./api";
-import ProxyPage, { ServiceProxyNote } from "./ProxyPage";
+import ProxyPage from "./ProxyPage";
+import { AppTopbar, ServiceSidebar } from "./components/AppChrome";
+import { ConfirmDialog, SettingsDialog, ShortcutsDialog } from "./components/AppDialogs";
+import type { ConfirmState, Theme } from "./components/AppDialogs";
+import { CommandPalette } from "./components/CommandPalette";
+import type { MascotMood } from "./components/Mascot";
+import { MenuPanel, ToastStack } from "./components/overlays";
+import type { MenuEntry, MenuState, ToastItem } from "./components/overlays";
+import { DetectServiceDialog, ServiceFormDialog } from "./features/services/ServiceDialogs";
+import { ServiceDrawer } from "./features/services/ServiceDrawer";
+import { ServiceGrid } from "./features/services/ServiceGrid";
+import { ServiceSummary } from "./features/services/ServiceSummary";
+import { TYPE_DEFAULTS, commandFor } from "./features/services/servicePresentation";
+import type { DrawerTab, FilterKey } from "./features/services/servicePresentation";
 import type {
   DashboardSnapshot,
   DiagnoseReport,
@@ -69,79 +67,13 @@ import type {
   ServiceView,
 } from "./types";
 
-type FilterKey = "all" | "running" | "error" | "stopped";
-type DrawerTab = "overview" | "logs" | "config" | "diagnose";
-type Theme = "day" | "night";
-type ToastKind = "success" | "info" | "error";
 type ModalKind = "service" | "detect" | "settings" | "shortcuts" | null;
-type MascotMood = "idle" | "happy" | "sleep" | "worry";
-
-interface ToastItem {
-  id: number;
-  kind: ToastKind;
-  title: string;
-  message?: string;
-  action?: { label: string; onClick: () => void };
-}
-
-interface MenuEntry {
-  label?: string;
-  icon?: ReactNode;
-  note?: string;
-  danger?: boolean;
-  checked?: boolean;
-  disabled?: boolean;
-  divider?: boolean;
-  onClick?: () => void;
-}
-
-interface MenuState {
-  left: number;
-  top: number;
-  header?: string;
-  note?: string;
-  items: MenuEntry[];
-}
-
-interface ConfirmState {
-  title: string;
-  body: string;
-  list?: { name: string; note?: string }[];
-  note?: string;
-  confirmLabel: string;
-  danger?: boolean;
-  onConfirm: () => void | Promise<void>;
-}
-
-const TYPE_META: Record<ServiceType, { label: string; mono: string; cls: string }> = {
-  exe: { label: "EXE 程序", mono: "EXE", cls: "t-exe" },
-  nginx: { label: "Nginx", mono: "NG", cls: "t-nginx" },
-  node: { label: "Node.js", mono: "JS", cls: "t-node" },
-  python: { label: "Python", mono: "PY", cls: "t-python" },
-  script: { label: "BAT / PS1", mono: ">_", cls: "t-script" },
-};
-
-const STATUS_META = {
-  running: { label: "运行中", cls: "is-running" },
-  stopped: { label: "已停止", cls: "is-stopped" },
-  error: { label: "需要关心", cls: "is-error" },
-} as const;
-
-const GROUP_COLORS: Record<string, string> = {
-  "AI 推理": "#8e6fe8",
-  "AI Agent 项目": "#2fa98f",
-  折枝: "#e85d8f",
-  网关与中间件: "#3d8fd6",
-  开发工具: "#d99a2b",
-};
 
 const SORT_OPTIONS = [
   { key: "recent", label: "按最近启动" },
   { key: "name", label: "按名称" },
   { key: "cpu", label: "按占用" },
 ] as const;
-
-const TYPE_ORDER: ServiceType[] = ["exe", "python", "node", "nginx", "script"];
 
 const EMPTY_METRICS: PlatformMetrics = {
   selfPid: 0,
@@ -172,63 +104,15 @@ const EMPTY_FORM: ServiceConfig = {
   autoStartOnRegister: false,
 };
 
-const TYPE_DEFAULTS: Record<ServiceType, { executable: string; encoding: string }> = {
-  python: { executable: "python", encoding: "utf-8" },
-  node: { executable: "node", encoding: "utf-8" },
-  nginx: { executable: "D:/Develop/Windows/Nginx/nginx.exe", encoding: "utf-8" },
-  exe: { executable: "D:/Tools/app.exe", encoding: "utf-8" },
-  script: { executable: "powershell.exe", encoding: "gbk" },
-};
-
-function formatDuration(seconds: number): string {
-  if (!seconds || seconds <= 0) return "—";
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = Math.floor(seconds % 60);
-  if (h > 0) return `${h}h ${String(m).padStart(2, "0")}m`;
-  if (m > 0) return `${m}m ${String(s).padStart(2, "0")}s`;
-  return `${s}s`;
-}
-
-function formatFullDuration(seconds: number): string {
-  if (!seconds || seconds <= 0) return "00:00:00";
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = Math.floor(seconds % 60);
-  return [h, m, s].map((value) => String(value).padStart(2, "0")).join(":");
-}
-
 function normalizeUrl(raw: string): string {
   const value = raw.trim();
   if (!value) return "";
   return /^https?:\/\//i.test(value) ? value : `http://${value}`;
 }
 
-function baseName(path: string): string {
-  if (!path) return "";
-  const parts = path.split(/[\\/]/);
-  return parts[parts.length - 1] || path;
-}
-
-function commandFor(service: ServiceView): string {
-  const executable = baseName(service.executable) || service.executable;
-  const script = service.scriptPath ? baseName(service.scriptPath) : "";
-  const args = service.args?.join(" ") ?? "";
-  return [executable, script, args].filter(Boolean).join(" ");
-}
-
 function errorText(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error);
-}
-
-function presenceLabel(seconds: number): string {
-  if (!seconds || seconds <= 0) return "—";
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  if (h > 0) return `${h}h ${String(m).padStart(2, "0")}m`;
-  if (m > 0) return `${m}m`;
-  return `${Math.floor(seconds)}s`;
 }
 
 function timeAgo(timestamp: number, now: number): string {
@@ -247,153 +131,6 @@ function greetingFor(date: Date) {
   if (hour < 13) return { main: "中午好", side: "中午好呀", line: "记得吃饭，服务交给本鱼。" };
   if (hour < 18) return { main: "下午好", side: "下午好呀", line: "下午也一起加油吧。" };
   return { main: "晚上好", side: "晚上好呀", line: "今天也辛苦啦～" };
-}
-
-function dateLabel(date: Date): string {
-  const weekdays = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
-  return `${date.getMonth() + 1}月${date.getDate()}日 · ${weekdays[date.getDay()]}`;
-}
-
-function typeIcon(service: ServiceView, extra = "") {
-  const meta = TYPE_META[service.serviceType] ?? TYPE_META.exe;
-  return <span className={`fm-type-icon ${meta.cls} ${extra}`}>{meta.mono}</span>;
-}
-
-function statusPill(service: ServiceView, busy?: string) {
-  if (busy) {
-    const labels: Record<string, string> = { start: "启动中", stop: "停止中", restart: "重启中" };
-    return (
-      <span className="fm-status is-pending">
-        <i />
-        {labels[busy] ?? "处理中"}
-      </span>
-    );
-  }
-  const meta = STATUS_META[service.status];
-  return (
-    <span className={`fm-status ${meta.cls}`}>
-      <i />
-      {meta.label}
-    </span>
-  );
-}
-
-function Mascot({
-  size = 40,
-  mood = "idle",
-  full = false,
-  className = "",
-}: {
-  size?: number;
-  mood?: MascotMood;
-  full?: boolean;
-  className?: string;
-}) {
-  return (
-    <span
-      className={`mascot-slot ${className}`}
-      data-avatar={full ? "full" : undefined}
-      style={{ "--mascot-size": `${size}px` } as CSSProperties}
-    >
-      <span className="mascot-photo" data-mood={mood}>
-        <span className="mascot-img" />
-      </span>
-    </span>
-  );
-}
-
-function ModalFrame({
-  children,
-  onClose,
-  className = "",
-  label = "对话框",
-}: {
-  children: ReactNode;
-  onClose: () => void;
-  className?: string;
-  label?: string;
-}) {
-  const dialogRef = useDialogFocus();
-  return (
-    <div className="fm-modal-root is-open">
-      <div
-        className="fm-modal-backdrop"
-        data-modal-backdrop=""
-        onMouseDown={(event) => {
-          if (event.target === event.currentTarget) onClose();
-        }}
-      >
-        <div ref={dialogRef} className={`fm-modal ${className}`} role="dialog" aria-modal="true" aria-label={label} tabIndex={-1}>
-          {children}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ToastStack({ toasts, onClose }: { toasts: ToastItem[]; onClose: (id: number) => void }) {
-  return (
-    <div className="fm-toasts" aria-live="polite" aria-atomic="false">
-      {toasts.map((toast) => (
-        <div key={toast.id} className={`fm-toast ${toast.kind === "success" ? "" : toast.kind === "error" ? "is-error" : "is-info"}`}>
-          <span className="fm-toast-icon">
-            {toast.kind === "success" ? <Check className="i" /> : toast.kind === "error" ? <AlertTriangle className="i" /> : <Sparkles className="i" />}
-          </span>
-          <div className="fm-toast-copy">
-            {toast.title ? <b>{toast.title}</b> : null}
-            {toast.title && toast.message ? " " : null}
-            {toast.message ?? ""}
-          </div>
-          {toast.action ? (
-            <button
-              className="fm-toast-action"
-              onClick={() => {
-                toast.action?.onClick();
-                onClose(toast.id);
-              }}
-            >
-              {toast.action.label}
-            </button>
-          ) : null}
-          <button className="fm-toast-close" onClick={() => onClose(toast.id)} aria-label="关闭提示">
-            <X className="i" />
-          </button>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function MenuPanel({ menu, onClose }: { menu: MenuState; onClose: () => void }) {
-  return (
-    <>
-      <div className="fm-menu-overlay" onClick={onClose} />
-      <div className="fm-menu" style={{ left: menu.left, top: menu.top, width: 232 }} role="menu">
-        {menu.header ? <div className="fm-menu-head">{menu.header}</div> : null}
-        {menu.items.map((item, index) =>
-          item.divider ? (
-            <div className="fm-menu-divider" key={`divider-${index}`} />
-          ) : (
-            <button
-              key={`${item.label}-${index}`}
-              className={`fm-menu-item ${item.danger ? "is-danger" : ""} ${item.checked ? "is-checked" : ""}`}
-              role="menuitem"
-              disabled={item.disabled}
-              onClick={() => {
-                onClose();
-                item.onClick?.();
-              }}
-            >
-              {item.icon}
-              <span>{item.label}</span>
-              {item.note ? <small>{item.note}</small> : null}
-            </button>
-          )
-        )}
-        {menu.note ? <div className="fm-menu-note">{menu.note}</div> : null}
-      </div>
-    </>
-  );
 }
 
 export default function App() {
@@ -1276,13 +1013,6 @@ export default function App() {
     setSort(SORT_OPTIONS[(index + 1) % SORT_OPTIONS.length].key);
   };
 
-  const formatActionLabel = (service: ServiceView) => {
-    if (busy[service.id]) return busy[service.id] === "stop" ? "停止中…" : busy[service.id] === "restart" ? "重启中…" : "启动中…";
-    if (service.status === "running") return "停止";
-    if (service.status === "error") return "重试";
-    return "启动";
-  };
-
   const commandItems = [
     { label: "添加服务", hint: "手动填写配置", icon: <Plus className="i" />, run: openAdd },
     { label: "从文件夹自动识别", hint: "交给本鱼", icon: <Folder className="i" />, run: () => setModal("detect") },
@@ -1333,203 +1063,39 @@ export default function App() {
       data-theme={theme}
       data-moe="2"
     >
-      <header className="fm-topbar">
-        <button className="fm-brand" onClick={resetFilters} aria-label="回到总览">
-          <span className="fm-brand-avatar">
-            <Mascot size={38} mood="idle" />
-          </span>
-          <span className="fm-brand-text">
-            <b>FlashManager</b>
-            <small>本地服务小屋</small>
-          </span>
-        </button>
-        <span className={`fm-live-pill ${connected ? "" : "is-off"}`}>
-          <i />
-          {loading ? "连接中" : connected ? "守护中" : "未连接"}
-        </span>
-        <button className="fm-omni" onClick={() => setPaletteOpen(true)}>
-          <Search className="i" />
-          <span>搜索服务、分组或操作…</span>
-          <kbd>Ctrl</kbd>
-          <kbd>K</kbd>
-        </button>
-        <div className="fm-top-actions">
-          <button className="fm-iconbtn" onClick={() => setTheme(theme === "day" ? "night" : "day")} aria-label="切换樱昼 / 樱夜">
-            <Sun className="i fm-icon-sun" />
-            <Moon className="i fm-icon-moon" />
-          </button>
-          <button className="fm-iconbtn fm-bell" onClick={openBell} aria-label="通知">
-            <Bell className="i" />
-            {errorCount > 0 ? <span className="fm-badge">{errorCount}</span> : null}
-          </button>
-          <button className="fm-avatar" onClick={openUserMenu} aria-label="设置与更多">
-            <Mascot size={32} mood="happy" />
-          </button>
-        </div>
-      </header>
+      <AppTopbar
+        loading={loading}
+        connected={connected}
+        theme={theme}
+        errorCount={errorCount}
+        resetFilters={resetFilters}
+        openPalette={() => setPaletteOpen(true)}
+        setTheme={setTheme}
+        openBell={openBell}
+        openUserMenu={openUserMenu}
+      />
 
       <div className="fm-body">
-        <aside className="fm-side">
-          <button className="fm-greet-card" onClick={resetFilters} aria-label="和本鱼打招呼">
-            <span className="fm-greet-mascot">
-              <Mascot size={64} mood={heroMood} />
-            </span>
-            <span className="fm-greet-copy">
-              <b>{greet.side}</b>
-              <small>{greet.line}</small>
-            </span>
-            <span className="fm-greet-spark">✦</span>
-          </button>
-          <div className="fm-side-summary">
-            <i />
-            <b>{counts.running}</b> 个在运行 · <b>{counts.error}</b> 个需关注
-          </div>
-
-          <nav className="fm-nav" aria-label="服务视图">
-            <span className="fm-nav-title">小屋</span>
-            <button
-              className={page === "services" && group === "全部服务" && filter === "all" ? "is-active" : ""}
-              onClick={() => {
-                setPage("services");
-                setFilter("all");
-                setGroup("全部服务");
-                setType("all");
-              }}
-            >
-              <LayoutGrid className="i" />
-              <span>总览</span>
-              <small>{counts.total}</small>
-            </button>
-            <button
-              className={page === "services" && filter === "running" ? "is-active" : ""}
-              onClick={() => {
-                setPage("services");
-                setFilter("running");
-                setGroup("全部服务");
-                setType("all");
-              }}
-            >
-              <Play className="i" />
-              <span>正在运行</span>
-              <small>{counts.running}</small>
-            </button>
-            <button
-              className={page === "services" && filter === "error" ? "is-active" : ""}
-              onClick={() => {
-                setPage("services");
-                setFilter("error");
-                setGroup("全部服务");
-                setType("all");
-              }}
-            >
-              <AlertTriangle className="i" />
-              <span>需要关心</span>
-              <small className="is-danger">{counts.error}</small>
-            </button>
-            <button
-              className={page === "services" && filter === "stopped" ? "is-active" : ""}
-              onClick={() => {
-                setPage("services");
-                setFilter("stopped");
-                setGroup("全部服务");
-                setType("all");
-              }}
-            >
-              <Pause className="i" />
-              <span>已停止</span>
-              <small>{counts.stopped}</small>
-            </button>
-            <button className={page === "proxies" ? "is-active" : ""} onClick={() => openProxies()}>
-              <Route className="i" />
-              <span>反向代理</span>
-            </button>
-          </nav>
-
-          <nav className="fm-nav fm-groups" aria-label="服务分组">
-            <span className="fm-nav-title">分组</span>
-            {groups.map((name) => {
-              const stat = name === "全部服务" ? { total: counts.total, running: counts.running } : groupStats[name] ?? { total: 0, running: 0 };
-              const active = group === name;
-              return (
-                <button
-                  key={name}
-                  className={`fm-group-btn ${page === "services" && active ? "is-active" : ""}`}
-                  onClick={() => {
-                    setPage("services");
-                    setGroup(name);
-                    setFilter("all");
-                    setType("all");
-                  }}
-                  style={{ "--group-color": GROUP_COLORS[name] ?? (name === "全部服务" ? "#8e6fe8" : "#2fa98f") } as CSSProperties}
-                  title={`运行中 ${stat.running} / 共 ${stat.total}`}
-                >
-                  <span className="fm-group-dot" />
-                  <span>{name}</span>
-                  <small>
-                    <i className="run">{stat.running}</i>/{stat.total}
-                  </small>
-                </button>
-              );
-            })}
-          </nav>
-
-          <details className="fm-typebox">
-            <summary>
-              <span>运行器类型</span>
-              <small>{counts.total}</small>
-              <ChevronDown className="i" />
-            </summary>
-            <div className="fm-type-list">
-              <button
-                className={page === "services" && type === "all" ? "is-active" : ""}
-                onClick={() => {
-                  setPage("services");
-                  setType("all");
-                  setFilter("all");
-                  setGroup("全部服务");
-                }}
-              >
-                <span className="fm-mono-icon" style={{ background: "var(--fm-line)", color: "var(--fm-muted)" }}>
-                  ·
-                </span>
-                <span>全部类型</span>
-                <small>{counts.total}</small>
-              </button>
-              {TYPE_ORDER.map((serviceType) => {
-                const meta = TYPE_META[serviceType];
-                return (
-                  <button
-                    key={serviceType}
-                    className={page === "services" && type === serviceType ? "is-active" : ""}
-                    onClick={() => {
-                      setPage("services");
-                      setType(serviceType);
-                      setFilter("all");
-                      setGroup("全部服务");
-                    }}
-                  >
-                    <span className="fm-mono-icon" style={{ background: "var(--fm-surface-2)", color: "var(--fm-ink-2)" }}>
-                      {meta.mono}
-                    </span>
-                    <span>{meta.label}</span>
-                    <small>{typeCounts[serviceType] ?? 0}</small>
-                  </button>
-                );
-              })}
-            </div>
-          </details>
-
-          <div className="fm-side-foot">
-            <button onClick={() => setModal("settings")}>
-              <Settings className="i" />
-              设置
-            </button>
-            <button onClick={() => setModal("shortcuts")}>
-              <Keyboard className="i" />
-              快捷键
-            </button>
-          </div>
-        </aside>
+        <ServiceSidebar
+          greet={greet}
+          heroMood={heroMood}
+          counts={counts}
+          groups={groups}
+          groupStats={groupStats}
+          typeCounts={typeCounts}
+          page={page}
+          filter={filter}
+          group={group}
+          type={type}
+          setPage={setPage}
+          setFilter={setFilter}
+          setGroup={setGroup}
+          setType={setType}
+          resetFilters={resetFilters}
+          openProxies={openProxies}
+          openSettings={() => setModal("settings")}
+          openShortcuts={() => setModal("shortcuts")}
+        />
 
         <main className="fm-main">
           <div className="fm-scroll">
@@ -1542,1479 +1108,212 @@ export default function App() {
                 onToast={pushToast}
               />
             ) : (
-            <>
-            <section className="fm-hero">
-              <div className="fm-hero-copy">
-                <span className="fm-eyebrow">{dateLabel(now)}</span>
-                <h1>
-                  <span>{greet.main}</span>，<span className="fm-soft">今天也辛苦啦</span>
-                </h1>
-                <p>{heroSub}</p>
-              </div>
-              <div className="fm-hero-side">
-                <div className="fm-hero-mascot" role="button" tabIndex={0} aria-label="和本鱼打招呼">
-                  <Mascot size={88} mood={heroMood} />
-                  <span className="fm-bubble">都交给我吧～</span>
-                </div>
-                <div className="fm-hero-actions">
-                  <button className="fm-btn fm-btn-soft" onClick={openBatchMenu}>
-                    <Layers className="i" />
-                    批量操作
-                    <ChevronDown className="i fm-chev" />
-                  </button>
-                  <button className="fm-btn fm-btn-primary" onClick={() => openAdd()}>
-                    <Plus className="i" />
-                    添加服务
-                  </button>
-                </div>
-              </div>
-            </section>
+              <>
+                <ServiceSummary
+                  now={now}
+                  greeting={greet.main}
+                  heroSub={heroSub}
+                  heroMood={heroMood}
+                  loading={loading}
+                  connected={connected}
+                  counts={counts}
+                  metrics={metrics}
+                  refresh={refresh}
+                  openBatchMenu={openBatchMenu}
+                  openAdd={openAdd}
+                  showErrors={() => {
+                    setFilter("error");
+                    setGroup("全部服务");
+                    setType("all");
+                  }}
+                  setFilter={setFilter}
+                />
 
-            {!connected && !loading ? (
-              <button className="fm-attention" onClick={() => void refresh()}>
-                <span className="fm-attention-icon">
-                  <AlertTriangle className="i" />
-                </span>
-                <span className="fm-attention-copy">
-                  <b>还没有连上本地守护进程</b>
-                  <small>请确认 FlashManager 后端正在运行；界面会自动重试，点这里立即重试。</small>
-                </span>
-                <span className="fm-attention-link">
-                  重试 <ArrowRight className="i" />
-                </span>
-              </button>
-            ) : null}
-
-            {errorCount > 0 && services.length > 0 ? (
-              <button
-                className="fm-attention"
-                onClick={() => {
-                  setFilter("error");
-                  setGroup("全部服务");
-                  setType("all");
-                }}
-              >
-                <span className="fm-attention-icon">
-                  <AlertTriangle className="i" />
-                </span>
-                <span className="fm-attention-copy">
-                  <b>有 {errorCount} 个小伙伴需要关心</b>
-                  <small>打开诊断可以看到影响、原因和下一步处理。</small>
-                </span>
-                <span className="fm-attention-link">
-                  去看看 <ArrowRight className="i" />
-                </span>
-              </button>
-            ) : null}
-
-            <section className="fm-stats" aria-label="全局指标">
-              <button
-                className="fm-stat"
-                onClick={() => setFilter("running")}
-                style={{ "--stat-color": "var(--fm-mint)", "--stat-wash": "var(--fm-mint-soft)" } as CSSProperties}
-                aria-label="查看运行中的服务"
-              >
-                <span className="fm-stat-top">
-                  <span className="fm-stat-icon">
-                    <Play className="i" />
-                  </span>
-                  运行中
-                </span>
-                <span className="fm-stat-value">
-                  <b>{counts.running}</b>
-                  <small>/ {counts.total}</small>
-                </span>
-                <span className="fm-stat-sub">
-                  <span className="up">{counts.total ? Math.round((counts.running / counts.total) * 100) : 0}%</span> 健康在线
-                </span>
-                <span className="fm-stat-bar">
-                  <span style={{ width: `${counts.total ? Math.round((counts.running / counts.total) * 100) : 0}%` }} />
-                </span>
-              </button>
-              <button
-                className="fm-stat"
-                onClick={() => setFilter("all")}
-                style={{ "--stat-color": "var(--fm-sky)", "--stat-wash": "var(--fm-sky-soft)" } as CSSProperties}
-                aria-label="查看 CPU 总览"
-              >
-                <span className="fm-stat-top">
-                  <span className="fm-stat-icon">
-                    <Cpu className="i" />
-                  </span>
-                  托管 CPU
-                </span>
-                <span className="fm-stat-value">
-                  <b>{metrics.totalManagedCpu.toFixed(1)}</b>
-                  <small>%</small>
-                </span>
-                <span className="fm-stat-sub">{counts.running} 个进程正在计入</span>
-              </button>
-              <button
-                className="fm-stat"
-                onClick={() => setFilter("all")}
-                style={{ "--stat-color": "var(--fm-lilac)", "--stat-wash": "var(--fm-lilac-soft)" } as CSSProperties}
-                aria-label="查看内存总览"
-              >
-                <span className="fm-stat-top">
-                  <span className="fm-stat-icon">
-                    <MemoryStick className="i" />
-                  </span>
-                  托管内存
-                </span>
-                <span className="fm-stat-value">
-                  <b>{Math.round(metrics.totalManagedMemoryMb)}</b>
-                  <small>MB</small>
-                </span>
-                <span className="fm-stat-sub">平均 {counts.running ? Math.round(metrics.totalManagedMemoryMb / counts.running) : 0} MB / 服务</span>
-                <span className="fm-stat-bar">
-                  <span
-                    style={{
-                      width: `${Math.max(3, Math.min(100, Math.round(metrics.totalManagedMemoryMb / 10)))}%`,
-                      background: "var(--fm-lilac)",
-                    }}
-                  />
-                </span>
-              </button>
-              <button
-                className="fm-stat"
-                onClick={() => setFilter("running")}
-                style={{ "--stat-color": "var(--fm-butter)", "--stat-wash": "var(--fm-butter-soft)" } as CSSProperties}
-                aria-label="查看活跃端口"
-              >
-                <span className="fm-stat-top">
-                  <span className="fm-stat-icon">
-                    <Globe className="i" />
-                  </span>
-                  活跃端口
-                </span>
-                <span className="fm-stat-value">
-                  <b>{metrics.activePorts.length}</b>
-                  <small>个</small>
-                </span>
-                <span className="fm-stat-ports">
-                  {metrics.activePorts.slice(0, 3).map((port) => (
-                    <span key={port}>:{port}</span>
-                  ))}
-                  {metrics.activePorts.length > 3 ? <span className="more">+{metrics.activePorts.length - 3}</span> : null}
-                  {!metrics.activePorts.length ? <span className="more">暂无</span> : null}
-                </span>
-              </button>
-            </section>
-
-            <div className="fm-toolbar">
-              <div className="fm-filters" role="group" aria-label="状态筛选">
-                {filterOptions.map((option) => (
-                  <button
-                    key={option.key}
-                    className={`fm-chip ${filter === option.key ? "is-active" : ""}`}
-                    onClick={() => {
-                      setFilter(option.key);
-                      setGroup("全部服务");
-                    }}
-                    aria-pressed={filter === option.key}
-                  >
-                    {option.label}
-                    <b>{option.count}</b>
-                  </button>
-                ))}
-              </div>
-              <div className="fm-toolbar-right">
-                <label className="fm-searchbox">
-                  <Search className="i" />
-                  <input
-                    ref={searchRef}
-                    value={search}
-                    onChange={(event) => setSearch(event.target.value)}
-                    placeholder="搜索名称、端口、路径…"
-                    type="search"
-                    autoComplete="off"
-                  />
-                  <kbd>/</kbd>
-                </label>
-                <button className="fm-sortbtn" onClick={cycleSort} title="切换排序" aria-label="切换排序">
-                  <ArrowUpDown className="i" />
-                  <span>{sortLabel}</span>
-                </button>
-                <div className="fm-viewtoggle" role="group" aria-label="视图切换">
-                  <button
-                    className={view === "grid" ? "is-active" : ""}
-                    onClick={() => setView("grid")}
-                    aria-label="卡片视图"
-                    aria-pressed={view === "grid"}
-                  >
-                    <LayoutGrid className="i" />
-                  </button>
-                  <button
-                    className={view === "list" ? "is-active" : ""}
-                    onClick={() => setView("list")}
-                    aria-label="列表视图"
-                    aria-pressed={view === "list"}
-                  >
-                    <List className="i" />
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div className={`fm-grid ${view === "list" ? "is-list" : ""}`}>
-              {loading ? (
-                Array.from({ length: 4 }).map((_, index) => (
-                  <div className="fm-skeleton" key={index} aria-hidden="true">
-                    <span className="sk-top" />
-                    <span className="sk-sub" />
-                    <span className="sk-cmd" />
-                    <span className="sk-bottom" />
+                <div className="fm-toolbar">
+                  <div className="fm-filters" role="group" aria-label="状态筛选">
+                    {filterOptions.map((option) => (
+                      <button
+                        key={option.key}
+                        className={`fm-chip ${filter === option.key ? "is-active" : ""}`}
+                        onClick={() => {
+                          setFilter(option.key);
+                          setGroup("全部服务");
+                        }}
+                        aria-pressed={filter === option.key}
+                      >
+                        {option.label}
+                        <b>{option.count}</b>
+                      </button>
+                    ))}
                   </div>
-                ))
-              ) : services.length === 0 ? (
-                <div className="fm-empty">
-                  <span className="fm-empty-mascot">
-                    <Mascot size={108} mood="sleep" />
-                  </span>
-                  <h3>小屋里还空空的…</h3>
-                  <p>把第一个本地服务请进来吧。你可以手动填写，也可以直接把项目文件夹交给本鱼，让我自己识别。</p>
-                  <div className="fm-empty-actions">
-                    <button className="fm-btn fm-btn-primary" onClick={() => openAdd()}>
-                      <Plus className="i" />
-                      添加第一个服务
-                    </button>
-                    <button className="fm-btn fm-btn-soft" onClick={() => setModal("detect")}>
-                      <Folder className="i" />
-                      从文件夹自动识别
-                    </button>
-                  </div>
-                  <div className="fm-empty-steps">
-                    <span>
-                      <b>1</b> 添加服务
-                    </span>
-                    <span>
-                      <b>2</b> 确认启动命令
-                    </span>
-                    <span>
-                      <b>3</b> 安心托管
-                    </span>
-                  </div>
-                </div>
-              ) : visibleServices.length === 0 ? (
-                <div className="fm-empty is-search">
-                  <span className="fm-empty-mascot">
-                    <Mascot size={84} mood="idle" />
-                  </span>
-                  <h3>没有找到符合条件的小伙伴</h3>
-                  <p>试试换一个关键词，或者清掉状态、分组和类型筛选。本鱼也可以帮你直接搜索整个小屋。</p>
-                  <div className="fm-empty-actions">
-                    <button className="fm-btn fm-btn-primary" onClick={resetFilters}>
-                      清除筛选
-                    </button>
-                    <button className="fm-btn fm-btn-soft" onClick={() => setPaletteOpen(true)}>
+                  <div className="fm-toolbar-right">
+                    <label className="fm-searchbox">
                       <Search className="i" />
-                      打开命令面板
+                      <input
+                        ref={searchRef}
+                        value={search}
+                        onChange={(event) => setSearch(event.target.value)}
+                        placeholder="搜索名称、端口、路径…"
+                        type="search"
+                        autoComplete="off"
+                      />
+                      <kbd>/</kbd>
+                    </label>
+                    <button className="fm-sortbtn" onClick={cycleSort} title="切换排序" aria-label="切换排序">
+                      <ArrowUpDown className="i" />
+                      <span>{sortLabel}</span>
                     </button>
+                    <div className="fm-viewtoggle" role="group" aria-label="视图切换">
+                      <button
+                        className={view === "grid" ? "is-active" : ""}
+                        onClick={() => setView("grid")}
+                        aria-label="卡片视图"
+                        aria-pressed={view === "grid"}
+                      >
+                        <LayoutGrid className="i" />
+                      </button>
+                      <button
+                        className={view === "list" ? "is-active" : ""}
+                        onClick={() => setView("list")}
+                        aria-label="列表视图"
+                        aria-pressed={view === "list"}
+                      >
+                        <List className="i" />
+                      </button>
+                    </div>
                   </div>
                 </div>
-              ) : (
-                visibleServices.map((service) => {
-                  const meta = TYPE_META[service.serviceType] ?? TYPE_META.exe;
-                  const busyAction = busy[service.id];
-                  const running = service.status === "running";
-                  const error = service.status === "error";
-                  const primaryClass = busyAction ? "start is-busy" : running ? "stop" : error ? "retry" : "start";
-                  const primaryIcon = busyAction ? <Loader2 className="i" /> : running ? <Square className="i" /> : error ? <RefreshCw className="i" /> : <Play className="i" />;
-                  const isSelected = drawerOpen && selectedId === service.id;
-                  return (
-                    <article
-                      key={service.id}
-                      className={`fm-card ${error ? "is-error" : ""} ${isSelected ? "is-selected" : ""} ${busyAction ? "is-busy" : ""}`}
-                      role="listitem"
-                      tabIndex={0}
-                      aria-label={`${service.name}，${STATUS_META[service.status].label}，按回车查看详情`}
-                      onClick={() => openDrawer(service.id)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          openDrawer(service.id);
-                        }
-                      }}
-                    >
-                      <div className="fm-card-top">
-                        <span className={`fm-type-icon ${meta.cls}`}>{meta.mono}</span>
-                        <div className="fm-card-title">
-                          <div className="fm-card-name">
-                            <span className="fm-name-text">{service.name}</span>
-                          </div>
-                          <div className="fm-card-meta">
-                            <span>{service.group}</span>
-                            {service.needsRestart ? <span className="fm-stale-tag">待重启</span> : null}
-                          </div>
-                        </div>
-                        <div className="fm-card-top-right">
-                          {statusPill(service, busyAction)}
-                          <button
-                            className="fm-kebab"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              openCardMenu(event, service);
-                            }}
-                            aria-label={`${service.name} 的更多操作`}
-                          >
-                            <MoreHorizontal className="i" />
-                          </button>
-                        </div>
-                      </div>
-                      {error ? (
-                        <div className="fm-card-error">
-                          <AlertTriangle className="i" />
-                          <span>{service.port ? `端口 ${service.port} 没有响应或进程已退出` : "进程异常退出，看看诊断里的下一步。"}</span>
-                          <b
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              void runDiagnose(service.id);
-                            }}
-                          >
-                            去诊断
-                          </b>
-                        </div>
-                      ) : (
-                        <div className="fm-card-cmd">{commandFor(service)}</div>
-                      )}
-                      <div className="fm-card-bottom">
-                        <div className="fm-card-stats">
-                          <span className={`port ${service.port ? "" : "is-off"}`}>
-                            <Globe className="i" />
-                            {service.port ? `:${service.port}` : "—"}
-                          </span>
-                          <span>
-                            <Clock className="i" />
-                            {running ? (service.uptimeSeconds > 0 ? presenceLabel(service.uptimeSeconds) : "刚刚") : "—"}
-                          </span>
-                          <span>
-                            <Cpu className="i" />
-                            {running ? `${service.cpuUsage.toFixed(1)}%` : "0.0%"}
-                          </span>
-                          <span>
-                            <MemoryStick className="i" />
-                            {running ? `${Math.round(service.memoryMb)}M` : "0M"}
-                          </span>
-                        </div>
-                        <div className="fm-card-actions">
-                          {service.frontendUrl ? (
-                            <button
-                              className="fm-mini-btn open-frontend"
-                              title="打开前端"
-                              aria-label="打开前端"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                void openFrontend(service);
-                              }}
-                            >
-                              <ExternalLink className="i" />
-                            </button>
-                          ) : null}
-                          <button
-                            className="fm-mini-btn"
-                            title="查看日志"
-                            aria-label="查看日志"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              openDrawer(service.id, "logs");
-                            }}
-                          >
-                            <Terminal className="i" />
-                          </button>
-                          <button
-                            className={`fm-card-primary ${primaryClass}`}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              toggleService(service);
-                            }}
-                            disabled={Boolean(busyAction)}
-                          >
-                            {primaryIcon}
-                            {formatActionLabel(service)}
-                          </button>
-                        </div>
-                      </div>
-                    </article>
-                  );
-                })
-              )}
-            </div>
 
-            <div className="fm-list-foot">
-              <span>
-                共 <b>{counts.total}</b> 个服务 · <b>{counts.running}</b> 个运行中
-              </span>
-              <span className="fm-sync is-live">
-                <RefreshCw className="i" />
-                最后更新 {timeAgo(lastUpdated, now.getTime())}
-              </span>
-            </div>
-            </>
+                <ServiceGrid
+                  loading={loading}
+                  totalServices={services.length}
+                  visibleServices={visibleServices}
+                  view={view}
+                  selectedId={drawerOpen ? selectedId : null}
+                  busy={busy}
+                  openAdd={openAdd}
+                  openDetect={() => setModal("detect")}
+                  openPalette={() => setPaletteOpen(true)}
+                  resetFilters={resetFilters}
+                  openDrawer={openDrawer}
+                  openCardMenu={openCardMenu}
+                  runDiagnose={runDiagnose}
+                  openFrontend={openFrontend}
+                  toggleService={toggleService}
+                />
+
+                <div className="fm-list-foot">
+                  <span>
+                    共 <b>{counts.total}</b> 个服务 · <b>{counts.running}</b> 个运行中
+                  </span>
+                  <span className="fm-sync is-live">
+                    <RefreshCw className="i" />
+                    最后更新 {timeAgo(lastUpdated, now.getTime())}
+                  </span>
+                </div>
+              </>
             )}
           </div>
         </main>
 
-        <div className={`fm-drawer ${drawerOpen && activeService ? "is-open" : ""}`} aria-hidden={!drawerOpen || !activeService}>
-          <div className="fm-drawer-backdrop" onClick={() => setDrawerOpen(false)} />
-          {activeService ? (
-            <aside className="fm-drawer-panel" role="dialog" aria-modal="false" aria-label="服务详情">
-              <div className="fm-drawer-head">
-                <div className="fm-drawer-titlebar">
-                  {typeIcon(activeService)}
-                  <div className="fm-drawer-title">
-                    <h2>
-                      {activeService.name}
-                      {busy[activeService.id] ? statusPill(activeService, busy[activeService.id]) : null}
-                    </h2>
-                    <p>
-                      {activeService.group} · {activeService.port ? `127.0.0.1:${activeService.port}` : "无监控端口"} ·{" "}
-                      {activeService.pid ? `PID ${activeService.pid}` : "无进程"}
-                    </p>
-                  </div>
-                  <button className="fm-drawer-close" onClick={() => setDrawerOpen(false)} aria-label="关闭详情">
-                    <X className="i" />
-                  </button>
-                </div>
-                <div className="fm-drawer-statusline">
-                  {statusPill(activeService, busy[activeService.id])}
-                  <span className="fm-status neutral">{activeService.autoRestart ? "自动重启 · 开" : "自动重启 · 关"}</span>
-                  <span className="fm-status neutral">{TYPE_META[activeService.serviceType].label}</span>
-                </div>
-                <div className="fm-drawer-actions">
-                  <button
-                    className={`fm-btn fm-drawer-main ${busy[activeService.id] ? "start is-busy" : activeService.status === "running" ? "stop" : activeService.status === "error" ? "retry" : "start"}`}
-                    onClick={() => toggleService(activeService)}
-                    disabled={Boolean(busy[activeService.id])}
-                  >
-                    {busy[activeService.id] ? <Loader2 className="i" /> : activeService.status === "running" ? <Square className="i" /> : activeService.status === "error" ? <RefreshCw className="i" /> : <Play className="i" />}
-                    {busy[activeService.id] ? "处理中…" : activeService.status === "running" ? "停止服务" : activeService.status === "error" ? "重试启动" : "启动服务"}
-                  </button>
-                  <button
-                    className="fm-drawer-iconbtn"
-                    title="重启服务"
-                    aria-label="重启服务"
-                    onClick={() => void runServiceAction(activeService.id, "restart")}
-                  >
-                    <RefreshCw className="i" />
-                  </button>
-                  {activeService.frontendUrl ? (
-                    <button className="fm-drawer-iconbtn" title="打开前端" aria-label="打开前端" onClick={() => void openFrontend(activeService)}>
-                      <ExternalLink className="i" />
-                    </button>
-                  ) : null}
-                  <button className="fm-drawer-iconbtn" title="健康诊断" aria-label="健康诊断" onClick={() => void runDiagnose(activeService.id)}>
-                    <Activity className="i" />
-                  </button>
-                  <button className="fm-drawer-iconbtn" title="更多操作" aria-label="更多操作" onClick={(event) => openCardMenu(event, activeService)}>
-                    <MoreHorizontal className="i" />
-                  </button>
-                </div>
-              </div>
-
-              <div className="fm-drawer-tabs" role="tablist" aria-label="详情页签">
-                {(
-                  [
-                    ["overview", "概览"],
-                    ["logs", "实时日志"],
-                    ["config", "配置"],
-                    ["diagnose", "诊断"],
-                  ] as const
-                ).map(([key, label]) => (
-                  <button
-                    key={key}
-                    role="tab"
-                    aria-selected={drawerTab === key}
-                    className={drawerTab === key ? "is-active" : ""}
-                    onClick={() => selectTab(key)}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-
-              <div className="fm-drawer-body">
-                {drawerTab === "overview" ? (
-                  <>
-                    <div className={`fm-overview-hero ${activeService.status === "error" ? "is-error" : ""}`}>
-                      <Mascot
-                        size={58}
-                        mood={activeService.status === "running" ? "happy" : activeService.status === "error" ? "worry" : "sleep"}
-                      />
-                      <div>
-                        <b>
-                          {activeService.status === "running"
-                            ? "正在乖乖运行"
-                            : activeService.status === "error"
-                              ? "遇到一点小问题"
-                              : "在休息，随时可以叫醒"}
-                        </b>
-                        <small>
-                          {activeService.status === "running"
-                            ? `${formatDuration(activeService.uptimeSeconds)} · ${activeService.cpuUsage.toFixed(1)}% CPU · ${Math.round(activeService.memoryMb)} MB`
-                            : activeService.status === "error"
-                              ? "进程或端口没有正常响应，看看诊断里的下一步。"
-                              : "停止状态不会占用 CPU 与内存，需要时再启动。"}
-                        </small>
-                      </div>
-                    </div>
-                    <div className="fm-overview-grid">
-                      <div className="fm-metric-tile">
-                        <small>
-                          <Cpu className="i" />
-                          PID
-                        </small>
-                        <b>{activeService.pid ?? "—"}</b>
-                      </div>
-                      <div className="fm-metric-tile">
-                        <small>
-                          <Globe className="i" />
-                          端口
-                        </small>
-                        <b>{activeService.port ?? "—"}</b>
-                      </div>
-                      <div className="fm-metric-tile">
-                        <small>
-                          <Clock className="i" />
-                          运行时长
-                        </small>
-                        <b>{formatFullDuration(activeService.uptimeSeconds)}</b>
-                      </div>
-                      <div className="fm-metric-tile">
-                        <small>
-                          <Shield className="i" />
-                          进程树
-                        </small>
-                        <b>{activeService.status === "running" ? "已托管" : "—"}</b>
-                      </div>
-                    </div>
-                    <div className="fm-detail-section">
-                      <h4>
-                        <Activity className="i" />
-                        健康检查
-                      </h4>
-                      <div className="fm-health-list">
-                        <div className={`fm-health-row ${activeService.status === "error" ? "is-warn" : ""}`}>
-                          <span className="fm-health-icon">{activeService.status === "error" ? "!" : activeService.status === "running" ? "✓" : "·"}</span>
-                          <span>进程状态</span>
-                          <small>{activeService.status === "running" ? "运行中" : activeService.status === "error" ? "异常退出" : "未运行"}</small>
-                        </div>
-                        <div className={`fm-health-row ${activeService.port && !activeService.portActive ? "is-warn" : ""}`}>
-                          <span className="fm-health-icon">{activeService.port && !activeService.portActive ? "!" : "✓"}</span>
-                          <span>端口监听</span>
-                          <small>{!activeService.port ? "未配置" : activeService.portActive ? "监听中" : "无响应"}</small>
-                        </div>
-                        <div className="fm-health-row">
-                          <span className="fm-health-icon">✓</span>
-                          <span>配置读取</span>
-                          <small>通过</small>
-                        </div>
-                        <div className="fm-health-row">
-                          <span className="fm-health-icon">✓</span>
-                          <span>自动重启</span>
-                          <small>{activeService.autoRestart ? "已开启" : "已关闭"}</small>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="fm-detail-section">
-                      <h4>
-                        <Shield className="i" />
-                        服务档案
-                      </h4>
-                      <div className="fm-kv">
-                        <div className="fm-kv-row">
-                          <span>启动命令</span>
-                          <b title={commandFor(activeService)}>{commandFor(activeService)}</b>
-                        </div>
-                        <div className="fm-kv-row">
-                          <span>工作目录</span>
-                          <b title={activeService.cwd}>{activeService.cwd || "未设置"}</b>
-                        </div>
-                        <div className="fm-kv-row">
-                          <span>控制台编码</span>
-                          <b>{activeService.encoding.toUpperCase()}</b>
-                        </div>
-                        <div className="fm-kv-row">
-                          <span>前端地址</span>
-                          <b>{activeService.frontendUrl || "未配置"}</b>
-                        </div>
-                      </div>
-                    </div>
-                    <ServiceProxyNote service={activeService} services={services} onOpen={openProxies} />
-                    {activeLogs.length ? (
-                      <div className="fm-detail-section">
-                        <h4>
-                          <Terminal className="i" />
-                          最近输出
-                        </h4>
-                        <div className="fm-diag-code">
-                          {activeLogs
-                            .slice(-4)
-                            .map((entry) => `[${entry.time}] ${entry.level} ${entry.text}`)
-                            .join("\n")}
-                        </div>
-                      </div>
-                    ) : null}
-                  </>
-                ) : null}
-
-                {drawerTab === "logs" ? (
-                  <div className="fm-log-wrap">
-                    <div className="fm-log-toolbar">
-                      {[
-                        ["all", "全部"],
-                        ["OUT", "输出"],
-                        ["ERR", "错误"],
-                        ["SYS", "系统"],
-                      ].map(([key, label]) => (
-                        <button key={key} className={`fm-log-filter ${logLevel === key ? "is-active" : ""}`} onClick={() => setLogLevel(key)}>
-                          {label}
-                        </button>
-                      ))}
-                      <label className="fm-log-search">
-                        <Search className="i" />
-                        <input value={logQuery} onChange={(event) => setLogQuery(event.target.value)} placeholder="过滤日志…" type="search" />
-                      </label>
-                      <button
-                        className={`fm-log-tool ${logFollow ? "is-active" : ""}`}
-                        onClick={() => setLogFollow((current) => !current)}
-                        title={logFollow ? "暂停跟随" : "继续跟随"}
-                        aria-label={logFollow ? "暂停跟随" : "继续跟随"}
-                      >
-                        {logFollow ? <Pause className="i" /> : <Play className="i" />}
-                      </button>
-                      <button className="fm-log-tool" onClick={() => void clearLogs()} title="清空日志" aria-label="清空日志">
-                        <Trash2 className="i" />
-                      </button>
-                      <button className="fm-log-tool" onClick={copyLogs} title="复制可见日志" aria-label="复制可见日志">
-                        <Copy className="i" />
-                      </button>
-                    </div>
-                    <div className="fm-console">
-                      <div className="fm-console-bar">
-                        <i />
-                        <span>{activeService.name} · stdout / stderr</span>
-                        <span className={logFollow ? "fm-console-live" : "fm-console-paused"}>{logFollow ? "● 实时跟随" : "Ⅱ 已暂停"}</span>
-                      </div>
-                      <div
-                        ref={logBoxRef}
-                        className="fm-console-lines"
-                        onScroll={(event) => {
-                          const box = event.currentTarget;
-                          const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 12;
-                          if (atBottom !== logFollow) setLogFollow(atBottom);
-                        }}
-                      >
-                        {activeLogs.length ? (
-                          activeLogs.map((entry, index) => (
-                            <div className={`fm-log-line ${entry.level === "ERR" ? "is-err" : ""}`} key={`${entry.time}-${index}`}>
-                              <span className="lt">{entry.time}</span>
-                              <span className={`fm-log-level ${entry.level === "ERR" ? "err" : entry.level === "SYS" ? "sys" : "out"}`}>{entry.level}</span>
-                              <span className="lx">{entry.text}</span>
-                            </div>
-                          ))
-                        ) : (
-                          <div className="fm-log-empty">
-                            <Mascot size={58} mood="sleep" />
-                            <b>这里暂时很安静</b>
-                            <span>{logQuery || logLevel !== "all" ? "没有匹配的日志，试试换个关键词。" : "服务启动后，stdout / stderr 会出现在这里。"}</span>
-                          </div>
-                        )}
-                      </div>
-                      <div className="fm-log-footer">
-                        <span>
-                          {activeLogs.length} 行 · 游标 #{logCursorRef.current}
-                        </span>
-                        {!logFollow ? (
-                          <button
-                            className="fm-log-jump"
-                            onClick={() => {
-                              setLogFollow(true);
-                              if (logBoxRef.current) logBoxRef.current.scrollTop = logBoxRef.current.scrollHeight;
-                            }}
-                          >
-                            跳到底部 ↓
-                          </button>
-                        ) : null}
-                      </div>
-                    </div>
-                  </div>
-                ) : null}
-
-                {drawerTab === "config" ? (
-                  <>
-                    {activeService.status === "running" ? (
-                      <div className="fm-config-warning">
-                        <AlertTriangle className="i" />
-                        <span>服务正在运行。修改配置后需要重启才会生效，界面会提示你是否立即重启。</span>
-                      </div>
-                    ) : null}
-                    <div className="fm-kv">
-                      <div className="fm-kv-row">
-                        <span>运行器</span>
-                        <b>{TYPE_META[activeService.serviceType].label}</b>
-                      </div>
-                      <div className="fm-kv-row">
-                        <span>启动程序</span>
-                        <b title={activeService.executable}>{activeService.executable}</b>
-                      </div>
-                      {activeService.scriptPath ? (
-                        <div className="fm-kv-row">
-                          <span>脚本路径</span>
-                          <b title={activeService.scriptPath}>{activeService.scriptPath}</b>
-                        </div>
-                      ) : null}
-                      <div className="fm-kv-row">
-                        <span>启动参数</span>
-                        <b>{activeService.args?.join(" ") || "—"}</b>
-                      </div>
-                      <div className="fm-kv-row">
-                        <span>工作目录</span>
-                        <b title={activeService.cwd}>{activeService.cwd || "未设置"}</b>
-                      </div>
-                      <div className="fm-kv-row">
-                        <span>监控端口</span>
-                        <b>{activeService.port ?? "未设置"}</b>
-                      </div>
-                      <div className="fm-kv-row">
-                        <span>前端地址</span>
-                        <b>{activeService.frontendUrl || "未设置"}</b>
-                      </div>
-                      <div className="fm-kv-row">
-                        <span>控制台编码</span>
-                        <b>
-                          <select
-                            className="fm-select"
-                            value={activeService.encoding}
-                            onChange={(event) => void changeEncoding(event.target.value)}
-                            aria-label="控制台编码"
-                            style={{ width: 112, height: 26, padding: "0 6px", fontSize: 11 }}
-                          >
-                            <option value="utf-8">UTF-8</option>
-                            <option value="gbk">GBK</option>
-                          </select>
-                        </b>
-                      </div>
-                      <div className="fm-kv-row">
-                        <span>自动重启</span>
-                        <b className={activeService.autoRestart ? "ok" : "warn"}>{activeService.autoRestart ? "已开启" : "已关闭"}</b>
-                      </div>
-                    </div>
-                    <div className="fm-detail-section">
-                      <h4>
-                        <Terminal className="i" />
-                        环境变量
-                      </h4>
-                      <div className="fm-env-chips">
-                        {Object.entries(activeService.env ?? {}).length ? (
-                          Object.entries(activeService.env).map(([key, value]) => (
-                            <span key={key}>
-                              {key}={value}
-                            </span>
-                          ))
-                        ) : (
-                          <span>未设置自定义环境变量</span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="fm-config-actions">
-                      <button className="fm-btn fm-btn-primary" onClick={() => openEdit(activeService)}>
-                        <Pencil className="i" />
-                        编辑配置
-                      </button>
-                      <button className="fm-btn fm-btn-soft" onClick={() => void copyText(commandFor(activeService), "启动命令已复制")}>
-                        <Copy className="i" />
-                        复制启动命令
-                      </button>
-                    </div>
-                  </>
-                ) : null}
-
-                {drawerTab === "diagnose" ? (
-                  <>
-                    <div className={`fm-diag-hero ${activeService.status === "error" ? "is-error" : ""}`}>
-                      {diagnoseLoading ? (
-                        <Loader2 className="i" />
-                      ) : (
-                        <Mascot
-                          size={54}
-                          mood={activeDiagnose ? (activeDiagnose.healthy ? "happy" : "worry") : activeService.status === "running" ? "happy" : activeService.status === "error" ? "worry" : "sleep"}
-                        />
-                      )}
-                      <div>
-                        <b>
-                          {diagnoseLoading
-                            ? "正在做一次健康检查…"
-                            : activeDiagnose
-                              ? activeDiagnose.healthy
-                                ? "一切正常，可以放心"
-                                : "发现一个需要处理的问题"
-                              : activeService.status === "error"
-                                ? "进程或端口异常"
-                                : "还没有这次诊断的结果"}
-                        </b>
-                        <small>{activeDiagnose?.summary ?? "点击下方按钮，检查进程、端口与最近错误输出。"}</small>
-                      </div>
-                    </div>
-                    <div className="fm-detail-section">
-                      <h4>
-                        <Shield className="i" />
-                        检查项
-                      </h4>
-                      <div className="fm-health-list">
-                        <div className={`fm-health-row ${activeService.status === "error" ? "is-warn" : ""}`}>
-                          <span className="fm-health-icon">{activeService.status === "running" ? "✓" : activeService.status === "error" ? "!" : "·"}</span>
-                          <span>进程存活</span>
-                          <small>{activeService.status === "running" ? "正常" : activeService.status === "error" ? "失败" : "未运行"}</small>
-                        </div>
-                        <div className={`fm-health-row ${activeService.port && !activeService.portActive ? "is-warn" : ""}`}>
-                          <span className="fm-health-icon">{activeService.port && !activeService.portActive ? "!" : "✓"}</span>
-                          <span>端口监听</span>
-                          <small>{!activeService.port ? "未配置" : activeService.portActive ? "监听中" : "无响应"}</small>
-                        </div>
-                        <div className="fm-health-row">
-                          <span className="fm-health-icon">✓</span>
-                          <span>配置读取</span>
-                          <small>通过</small>
-                        </div>
-                        <div className="fm-health-row">
-                          <span className="fm-health-icon">✓</span>
-                          <span>进程树托管</span>
-                          <small>{activeService.status === "running" ? "JobObject 已绑定" : "—"}</small>
-                        </div>
-                      </div>
-                    </div>
-                    {activeDiagnose?.recentLogs?.length ? (
-                      <div className="fm-detail-section">
-                        <h4>
-                          <Terminal className="i" />
-                          最近错误输出
-                        </h4>
-                        <div className="fm-diag-code">
-                          {activeDiagnose.recentLogs
-                            .slice(-4)
-                            .map((entry) => `[${entry.time}] ${entry.level} ${entry.text}`)
-                            .join("\n")}
-                        </div>
-                      </div>
-                    ) : null}
-                    <div className="fm-diag-actions">
-                      <button className="fm-btn fm-btn-primary" onClick={() => void runDiagnose(activeService.id)} disabled={diagnoseLoading}>
-                        {diagnoseLoading ? <Loader2 className="i" /> : <Activity className="i" />}
-                        重新诊断
-                      </button>
-                      <button className="fm-btn fm-btn-soft" onClick={() => void runServiceAction(activeService.id, "restart")}>
-                        <RefreshCw className="i" />
-                        重启并再测
-                      </button>
-                    </div>
-                  </>
-                ) : null}
-              </div>
-            </aside>
-          ) : null}
-        </div>
+        <ServiceDrawer
+          drawerOpen={drawerOpen}
+          drawerTab={drawerTab}
+          activeService={activeService}
+          services={services}
+          busyAction={activeService ? busy[activeService.id] : undefined}
+          activeDiagnose={activeDiagnose}
+          diagnoseLoading={diagnoseLoading}
+          activeLogs={activeLogs}
+          logLevel={logLevel}
+          logQuery={logQuery}
+          logFollow={logFollow}
+          logCursor={logCursorRef.current}
+          logBoxRef={logBoxRef}
+          onClose={() => setDrawerOpen(false)}
+          selectTab={selectTab}
+          setLogLevel={setLogLevel}
+          setLogQuery={setLogQuery}
+          setLogFollow={setLogFollow}
+          copyLogs={copyLogs}
+          clearLogs={clearLogs}
+          changeEncoding={changeEncoding}
+          copyText={copyText}
+          toggleService={toggleService}
+          runServiceAction={runServiceAction}
+          runDiagnose={runDiagnose}
+          openFrontend={openFrontend}
+          openEdit={openEdit}
+          openCardMenu={openCardMenu}
+          openProxies={openProxies}
+        />
       </div>
 
       <ToastStack toasts={toasts} onClose={removeToast} />
       {menu ? <MenuPanel menu={menu} onClose={() => setMenu(null)} /> : null}
 
       {confirmState ? (
-        <ModalFrame onClose={() => setConfirmState(null)} className="is-small" label={confirmState.title}>
-          <div className="fm-modal-head">
-            <span className="fm-modal-mascot">
-              <Mascot size={40} mood="worry" />
-            </span>
-            <div className="fm-modal-head-copy">
-              <h2>请确认这一步</h2>
-              <p>这个动作会立即生效，影响范围如下。</p>
-            </div>
-            <button className="fm-modal-close" onClick={() => setConfirmState(null)} aria-label="关闭">
-              <X className="i" />
-            </button>
-          </div>
-          <div className="fm-modal-body">
-            <div className="fm-confirm-body">
-              <Mascot size={92} mood="worry" />
-              <h3>{confirmState.title}</h3>
-              <p>{confirmState.body}</p>
-              {confirmState.list?.length ? (
-                <div className="fm-confirm-list">
-                  {confirmState.list.map((item) => (
-                    <div key={item.name}>
-                      <i style={{ background: "var(--fm-mint)" }} />
-                      <span>{item.name}</span>
-                      <small>{item.note ?? ""}</small>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-              {confirmState.note ? (
-                <div className="fm-danger-note">
-                  <AlertTriangle className="i" />
-                  <span>{confirmState.note}</span>
-                </div>
-              ) : null}
-            </div>
-          </div>
-          <div className="fm-modal-foot">
-            <button className="fm-btn fm-btn-soft" onClick={() => setConfirmState(null)}>
-              取消
-            </button>
-            <button
-              className={`fm-btn ${confirmState.danger ? "fm-btn-danger" : "fm-btn-primary"}`}
-              onClick={() => {
-                const action = confirmState.onConfirm;
-                setConfirmState(null);
-                void action();
-              }}
-            >
-              {confirmState.confirmLabel}
-            </button>
-          </div>
-        </ModalFrame>
+        <ConfirmDialog
+          confirmState={confirmState}
+          onClose={() => setConfirmState(null)}
+        />
       ) : null}
 
       {!confirmState && modal === "service" ? (
-        <ModalFrame onClose={() => setModal(null)} className="is-wide" label={editingId ? "编辑服务" : "添加服务"}>
-          <form
-            className="fm-modal-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void saveForm(true);
-            }}
-          >
-            <div className="fm-modal-head">
-              <span className="fm-modal-mascot">
-                <Mascot size={40} mood={editingId ? "idle" : "happy"} />
-              </span>
-              <div className="fm-modal-head-copy">
-                <h2>{editingId ? `调整「${form.name}」` : "把新伙伴请进小屋"}</h2>
-                <p>{editingId ? "修改配置。正在运行的服务需要重启后才会生效。" : "只需要填最少的信息；高级项默认收起来，之后再改也来得及。"}</p>
-              </div>
-              <button type="button" className="fm-modal-close" onClick={() => setModal(null)} aria-label="关闭">
-                <X className="i" />
-              </button>
-            </div>
-            <div className="fm-modal-body">
-              {formError ? (
-                <div className="fm-danger-note" style={{ marginBottom: 12, width: "100%" }}>
-                  <AlertTriangle className="i" />
-                  <span>{formError}</span>
-                </div>
-              ) : null}
-              <div className="fm-type-grid" role="radiogroup" aria-label="运行器类型">
-                {TYPE_ORDER.map((serviceType) => {
-                  const meta = TYPE_META[serviceType];
-                  return (
-                    <button
-                      key={serviceType}
-                      type="button"
-                      className={`fm-type-choice ${form.serviceType === serviceType ? "is-active" : ""}`}
-                      onClick={() => applyType(serviceType)}
-                      role="radio"
-                      aria-checked={form.serviceType === serviceType}
-                    >
-                      <span className={`fm-type-icon ${meta.cls}`}>{meta.mono}</span>
-                      <b>{meta.label}</b>
-                      <small>
-                        {serviceType === "python"
-                          ? ".py / .venv"
-                          : serviceType === "node"
-                            ? ".js / .mjs"
-                            : serviceType === "nginx"
-                              ? "网关"
-                              : serviceType === "script"
-                                ? ".bat / .ps1"
-                                : ".exe"}
-                      </small>
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div className="fm-form-grid">
-                <div className="fm-field">
-                  <label htmlFor="svcName">
-                    显示名称 <span className="req">*</span>
-                  </label>
-                  <input
-                    className="fm-input"
-                    id="svcName"
-                    value={form.name}
-                    onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
-                    placeholder="例如：DeepSeek RAG 助手"
-                    autoComplete="off"
-                  />
-                </div>
-                <div className="fm-field">
-                  <label htmlFor="svcGroup">所属分组</label>
-                  <input
-                    className="fm-input"
-                    id="svcGroup"
-                    value={form.group}
-                    onChange={(event) => setForm((current) => ({ ...current, group: event.target.value }))}
-                    placeholder="例如：AI Agent 项目"
-                    autoComplete="off"
-                  />
-                </div>
-                <div className="fm-field span-2">
-                  <label htmlFor="svcExecutable">
-                    启动程序 <span className="req">*</span>
-                  </label>
-                  <div className="fm-input-row">
-                    <input
-                      className="fm-input"
-                      id="svcExecutable"
-                      value={form.executable}
-                      onChange={(event) => setForm((current) => ({ ...current, executable: event.target.value }))}
-                      placeholder="python / node / D:/Tools/app.exe"
-                      autoComplete="off"
-                    />
-                    <button
-                      type="button"
-                      className="fm-btn fm-btn-soft"
-                      onClick={() => setForm((current) => ({ ...current, executable: TYPE_DEFAULTS[current.serviceType].executable }))}
-                    >
-                      <Folder className="i" />
-                      浏览
-                    </button>
-                  </div>
-                  <span className="fm-field-hint">可以直接写 python / node，也可以填绝对路径。</span>
-                </div>
-                {["python", "node", "script"].includes(form.serviceType) ? (
-                  <div className="fm-field span-2">
-                    <label htmlFor="svcScript">
-                      脚本文件路径 <span className="req">*</span>
-                    </label>
-                    <div className="fm-input-row">
-                      <input
-                        className="fm-input"
-                        id="svcScript"
-                        value={form.scriptPath ?? ""}
-                        onChange={(event) => setForm((current) => ({ ...current, scriptPath: event.target.value }))}
-                        placeholder="D:/Develop/my-service/server.py"
-                        autoComplete="off"
-                      />
-                      <button
-                        type="button"
-                        className="fm-btn fm-btn-soft"
-                        onClick={() =>
-                          setForm((current) => ({
-                            ...current,
-                            scriptPath: current.serviceType === "python" ? "D:/Develop/my-service/server.py" : current.serviceType === "node" ? "D:/Develop/my-service/index.mjs" : "D:/Develop/Tools/clean.ps1",
-                          }))
-                        }
-                      >
-                        <Folder className="i" />
-                        浏览
-                      </button>
-                    </div>
-                    <span className="fm-field-hint">相对路径会按工作目录解析；探测到项目里的 .venv 时会优先使用它。</span>
-                  </div>
-                ) : null}
-                <div className="fm-field">
-                  <label htmlFor="svcPort">
-                    监控端口 <small>选填</small>
-                  </label>
-                  <input
-                    className="fm-input"
-                    id="svcPort"
-                    type="number"
-                    min={1}
-                    max={65535}
-                    value={form.port ?? ""}
-                    onChange={(event) => setForm((current) => ({ ...current, port: event.target.value ? Number(event.target.value) : null }))}
-                    placeholder="如 8787"
-                  />
-                </div>
-                <div className="fm-field">
-                  <label htmlFor="svcFrontend">
-                    Web 前端地址 <small>选填</small>
-                  </label>
-                  <div className="fm-input-row">
-                    <input
-                      className="fm-input"
-                      id="svcFrontend"
-                      value={form.frontendUrl ?? ""}
-                      onChange={(event) => setForm((current) => ({ ...current, frontendUrl: event.target.value }))}
-                      placeholder="http://127.0.0.1:8787"
-                    />
-                    <button
-                      type="button"
-                      className="fm-btn fm-btn-soft"
-                      onClick={() => setForm((current) => ({ ...current, frontendUrl: current.port ? `http://127.0.0.1:${current.port}` : "" }))}
-                    >
-                      用端口
-                    </button>
-                  </div>
-                </div>
-                <div className="fm-field span-2">
-                  <label htmlFor="svcArgs">
-                    启动参数 <small>JSON 字符串数组；每项是一个完整参数</small>
-                  </label>
-                  <textarea
-                    className="fm-input"
-                    rows={4}
-                    id="svcArgs"
-                    value={formArgs}
-                    onChange={(event) => setFormArgs(event.target.value)}
-                    placeholder={'["--port", "8787", "--name", "hello world"]'}
-                  />
-                </div>
-              </div>
-
-              <details className="fm-advanced">
-                <summary>
-                  <ChevronDown className="i" />
-                  高级设置 · 工作目录 / 编码 / 自动重启
-                </summary>
-                <div className="fm-advanced-body">
-                  <div className="fm-form-grid">
-                    <div className="fm-field span-2">
-                      <label htmlFor="svcCwd">工作目录</label>
-                      <input
-                        className="fm-input"
-                        id="svcCwd"
-                        value={form.cwd}
-                        onChange={(event) => setForm((current) => ({ ...current, cwd: event.target.value }))}
-                        placeholder="留空则取程序或脚本所在目录"
-                      />
-                    </div>
-                    <div className="fm-field">
-                      <label htmlFor="svcEncoding">控制台编码</label>
-                      <select
-                        className="fm-select"
-                        id="svcEncoding"
-                        value={form.encoding}
-                        onChange={(event) => setForm((current) => ({ ...current, encoding: event.target.value }))}
-                      >
-                        <option value="utf-8">UTF-8（推荐）</option>
-                        <option value="gbk">GBK / CP936（中文批处理）</option>
-                      </select>
-                    </div>
-                    <div className="fm-field">
-                      <label>进程策略</label>
-                      <label className="fm-checkline">
-                        <input
-                          type="checkbox"
-                          checked={form.autoRestart}
-                          onChange={(event) => setForm((current) => ({ ...current, autoRestart: event.target.checked }))}
-                        />
-                        异常退出时自动重启
-                      </label>
-                      <span className="fm-field-hint">环境变量沿用现有配置，不在这个表单里编辑。</span>
-                    </div>
-                  </div>
-                </div>
-              </details>
-            </div>
-            <div className="fm-modal-foot">
-              <span className="fm-modal-foot-note">{editingId ? "保存后可在详情里重启生效" : "保存后随时可以在详情里启动"}</span>
-              <button type="button" className="fm-btn fm-btn-soft" onClick={() => setModal(null)}>
-                取消
-              </button>
-              {editingId ? (
-                <button type="button" className="fm-btn fm-btn-primary" disabled={saving} onClick={() => void saveForm(false)}>
-                  {saving ? <Loader2 className="i" /> : null}
-                  保存配置
-                </button>
-              ) : (
-                <>
-                  <button type="button" className="fm-btn fm-btn-soft" disabled={saving} onClick={() => void saveForm(false)}>
-                    仅保存
-                  </button>
-                  <button type="submit" className="fm-btn fm-btn-primary" disabled={saving}>
-                    {saving ? <Loader2 className="i" /> : null}
-                    保存并启动
-                  </button>
-                </>
-              )}
-            </div>
-          </form>
-        </ModalFrame>
+        <ServiceFormDialog
+          editingId={editingId}
+          form={form}
+          formArgs={formArgs}
+          formError={formError}
+          saving={saving}
+          setForm={setForm}
+          setFormArgs={setFormArgs}
+          applyType={applyType}
+          saveForm={saveForm}
+          onClose={() => setModal(null)}
+        />
       ) : null}
 
       {!confirmState && modal === "detect" ? (
-        <ModalFrame onClose={() => setModal(null)} label="自动识别服务">
-          <form
-            className="fm-modal-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void detectService();
-            }}
-          >
-            <div className="fm-modal-head">
-              <span className="fm-modal-mascot">
-                <Mascot size={40} mood="idle" />
-              </span>
-              <div className="fm-modal-head-copy">
-                <h2>把文件夹交给本鱼</h2>
-                <p>输入项目目录或脚本路径，自动识别 Python / Node / Nginx / EXE / BAT，并生成可确认的启动配置。</p>
-              </div>
-              <button type="button" className="fm-modal-close" onClick={() => setModal(null)} aria-label="关闭">
-                <X className="i" />
-              </button>
-            </div>
-            <div className="fm-modal-body">
-              {detectError ? (
-                <div className="fm-danger-note" style={{ marginBottom: 12 }}>
-                  <AlertTriangle className="i" />
-                  <span>{detectError}</span>
-                </div>
-              ) : null}
-              <div className="fm-field">
-                <label htmlFor="detectPath">
-                  项目目录或脚本路径 <span className="req">*</span>
-                </label>
-                <div className="fm-input-row">
-                  <input
-                    className="fm-input"
-                    id="detectPath"
-                    value={detectPath}
-                    onChange={(event) => setDetectPath(event.target.value)}
-                    placeholder="D:/Develop/Deepseek/my-service"
-                    autoComplete="off"
-                  />
-                </div>
-                <span className="fm-field-hint">会优先读取 .flashservice.json；没有的话按入口文件与 .venv 推断。</span>
-              </div>
-              <div className="fm-field">
-                <label htmlFor="detectGroup">放进哪个分组</label>
-                <input className="fm-input" id="detectGroup" value={detectGroup} onChange={(event) => setDetectGroup(event.target.value)} placeholder="AI Agent 项目" />
-              </div>
-              {detectBusy ? <div role="status" className="fm-field-hint">正在读取目录并识别启动配置…</div> : null}
-            </div>
-            <div className="fm-modal-foot">
-              <span className="fm-modal-foot-note">下一步确认启动配置，再选择仅保存或保存并启动</span>
-              <button type="button" className="fm-btn fm-btn-soft" onClick={() => setModal(null)}>
-                取消
-              </button>
-              <button type="submit" className="fm-btn fm-btn-primary" disabled={detectBusy}>
-                {detectBusy ? <Loader2 className="i" /> : <Folder className="i" />}
-                {detectBusy ? "正在识别…" : "识别并预览"}
-              </button>
-            </div>
-          </form>
-        </ModalFrame>
+        <DetectServiceDialog
+          detectPath={detectPath}
+          detectGroup={detectGroup}
+          detectBusy={detectBusy}
+          detectError={detectError}
+          setDetectPath={setDetectPath}
+          setDetectGroup={setDetectGroup}
+          detectService={detectService}
+          onClose={() => setModal(null)}
+        />
       ) : null}
 
       {!confirmState && modal === "settings" ? (
-        <ModalFrame onClose={() => setModal(null)} label="偏好设置">
-          <div className="fm-modal-head">
-            <span className="fm-modal-mascot">
-              <Mascot size={40} mood="idle" />
-            </span>
-            <div className="fm-modal-head-copy">
-              <h2>小屋偏好</h2>
-              <p>让界面更像你习惯的样子。所有设置只影响本机显示。</p>
-            </div>
-            <button className="fm-modal-close" onClick={() => setModal(null)} aria-label="关闭">
-              <X className="i" />
-            </button>
-          </div>
-          <div className="fm-modal-body">
-            <div className="fm-settings-section">
-              <h3>外观</h3>
-              <div className="fm-setting-row">
-                <div className="fm-setting-copy">
-                  <b>主题</b>
-                  <small>樱昼是奶油底色，樱夜适合长时间盯日志。</small>
-                </div>
-                <div className="fm-segmented">
-                  <button className={theme === "day" ? "is-active" : ""} onClick={() => setTheme("day")}>
-                    樱昼
-                  </button>
-                  <button className={theme === "night" ? "is-active" : ""} onClick={() => setTheme("night")}>
-                    樱夜
-                  </button>
-                </div>
-              </div>
-              <div className="fm-setting-row">
-                <div className="fm-setting-copy">
-                  <b>减少动效</b>
-                  <small>关闭浮动与闪烁；系统开启“减少动态效果”时会自动生效。</small>
-                </div>
-                <label className="fm-switch">
-                  <input type="checkbox" checked={reduceMotion} onChange={(event) => setReduceMotion(event.target.checked)} />
-                  <span />
-                </label>
-              </div>
-            </div>
-            <div className="fm-settings-section">
-              <h3>说明</h3>
-              <div className="fm-setting-row">
-                <div className="fm-setting-copy">
-                  <b>关于这个版本</b>
-                  <small>FlashManager v0.1.0 · Tauri v2 + React 18 · Sugar Star UI</small>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div className="fm-modal-foot">
-            <span className="fm-modal-foot-note">主题与动效偏好会保存在本机 localStorage</span>
-            <button className="fm-btn fm-btn-primary" onClick={() => setModal(null)}>
-              完成
-            </button>
-          </div>
-        </ModalFrame>
+        <SettingsDialog
+          theme={theme}
+          setTheme={setTheme}
+          reduceMotion={reduceMotion}
+          setReduceMotion={setReduceMotion}
+          onClose={() => setModal(null)}
+        />
       ) : null}
 
       {!confirmState && modal === "shortcuts" ? (
-        <ModalFrame onClose={() => setModal(null)} className="is-small" label="快捷键">
-          <div className="fm-modal-head">
-            <span className="fm-modal-mascot">
-              <Mascot size={40} mood="happy" />
-            </span>
-            <div className="fm-modal-head-copy">
-              <h2>快捷键</h2>
-              <p>键盘是第二条主路径。焦点在哪，操作就发生在哪。</p>
-            </div>
-            <button className="fm-modal-close" onClick={() => setModal(null)} aria-label="关闭">
-              <X className="i" />
-            </button>
-          </div>
-          <div className="fm-modal-body">
-            <table className="fm-shortcut-table">
-              <tbody>
-                {[
-                  ["打开 / 关闭命令面板", ["Ctrl", "K"]],
-                  ["聚焦服务搜索", ["/"]],
-                  ["添加服务", ["N"]],
-                  ["打开选中服务的日志", ["L"]],
-                  ["关闭抽屉 / 浮层", ["Esc"]],
-                  ["显示快捷键表", ["?"]],
-                ].map(([label, keys]) => (
-                  <tr key={label as string}>
-                    <td>{label}</td>
-                    <td>
-                      {(keys as string[]).map((key) => (
-                        <kbd key={key}>{key}</kbd>
-                      ))}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <p className="fm-field-hint" style={{ marginTop: 10 }}>
-              输入框内不会触发单字母快捷键，避免误操作。所有浮层都可以用 Esc 关闭。
-            </p>
-          </div>
-          <div className="fm-modal-foot">
-            <button className="fm-btn fm-btn-primary" onClick={() => setModal(null)}>
-              知道了
-            </button>
-          </div>
-        </ModalFrame>
+        <ShortcutsDialog onClose={() => setModal(null)} />
       ) : null}
 
       {paletteOpen ? (
-        <div className="fm-palette-root is-open">
-          <div className="fm-palette-backdrop" onClick={() => setPaletteOpen(false)} />
-          <div ref={paletteDialogRef} tabIndex={-1} className="fm-palette" role="dialog" aria-modal="true" aria-label="命令面板">
-            <div className="fm-palette-search">
-              <Search className="i" />
-              <input
-                value={paletteQuery}
-                onChange={(event) => {
-                  setPaletteQuery(event.target.value);
-                  setPaletteIndex(0);
-                }}
-                onKeyDown={(event) => {
-                  const total = paletteServices.length + paletteCommands.length;
-                  if (!total) return;
-                  if (event.key === "ArrowDown") {
-                    event.preventDefault();
-                    setPaletteIndex((current) => (current + 1) % total);
-                  } else if (event.key === "ArrowUp") {
-                    event.preventDefault();
-                    setPaletteIndex((current) => (current - 1 + total) % total);
-                  } else if (event.key === "Enter") {
-                    event.preventDefault();
-                    if (paletteIndex < paletteServices.length) executePaletteService(paletteServices[paletteIndex]);
-                    else executePaletteCommand(paletteCommands[paletteIndex - paletteServices.length].run);
-                  } else if (event.key === "Escape") {
-                    event.preventDefault();
-                    setPaletteOpen(false);
-                  }
-                }}
-                placeholder="搜索服务，或输入一个操作…"
-                autoComplete="off"
-                spellCheck={false}
-              />
-              <kbd>Esc</kbd>
-            </div>
-            <div className="fm-palette-list">
-              {!paletteServices.length && !paletteCommands.length ? (
-                <div className="fm-palette-empty">
-                  <Mascot size={70} mood="idle" />
-                  <b>没有找到「{paletteQuery}」</b>
-                  <span>试试服务名、端口，或“添加 / 停止 / 主题”。</span>
-                </div>
-              ) : null}
-              {paletteServices.length ? (
-                <>
-                  <div className="fm-palette-group">服务 · {paletteServices.length}</div>
-                  {paletteServices.map((service, index) => (
-                    <button
-                      key={service.id}
-                      className={`fm-palette-item ${paletteIndex === index ? "is-focus" : ""}`}
-                      onClick={() => executePaletteService(service)}
-                      onMouseEnter={() => setPaletteIndex(index)}
-                    >
-                      {typeIcon(service)}
-                      <span className="fm-palette-item-copy">
-                        <b>{service.name}</b>
-                        <small>
-                          {service.group} · {service.port ? `:${service.port}` : "无端口"}
-                        </small>
-                      </span>
-                      {statusPill(service)}
-                      <span className="fm-palette-enter">↵</span>
-                    </button>
-                  ))}
-                </>
-              ) : null}
-              {paletteCommands.length ? (
-                <>
-                  <div className="fm-palette-group">操作 · {paletteCommands.length}</div>
-                  {paletteCommands.map((command, index) => {
-                    const globalIndex = paletteServices.length + index;
-                    return (
-                      <button
-                        key={command.label}
-                        className={`fm-palette-item ${paletteIndex === globalIndex ? "is-focus" : ""}`}
-                        onClick={() => executePaletteCommand(command.run)}
-                        onMouseEnter={() => setPaletteIndex(globalIndex)}
-                      >
-                        <span className="fm-palette-icon">{command.icon}</span>
-                        <span className="fm-palette-item-copy">
-                          <b>{command.label}</b>
-                          <small>{command.hint}</small>
-                        </span>
-                        <span className="fm-palette-enter">↵</span>
-                      </button>
-                    );
-                  })}
-                </>
-              ) : null}
-            </div>
-            <div className="fm-palette-foot">
-              <span>
-                <kbd>↑</kbd>
-                <kbd>↓</kbd>选择
-              </span>
-              <span>
-                <kbd>↵</kbd>执行
-              </span>
-              <span>
-                <kbd>Esc</kbd>关闭
-              </span>
-              <span className="fm-palette-brand">
-                <Command className="i" /> Ctrl K
-              </span>
-            </div>
-          </div>
-        </div>
+        <CommandPalette
+          paletteQuery={paletteQuery}
+          paletteIndex={paletteIndex}
+          paletteServices={paletteServices}
+          paletteCommands={paletteCommands}
+          paletteDialogRef={paletteDialogRef}
+          setPaletteQuery={setPaletteQuery}
+          setPaletteIndex={setPaletteIndex}
+          executePaletteService={executePaletteService}
+          executePaletteCommand={executePaletteCommand}
+          onClose={() => setPaletteOpen(false)}
+        />
       ) : null}
     </div>
   );

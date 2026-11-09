@@ -1,0 +1,136 @@
+/* ==========================================================================
+   App-level modifiers & dark-theme touch-ups
+   ========================================================================== */
+
+.fm-app[data-moe="0"] .fm-greet-spark,
+.fm-app[data-moe="0"] .fm-bubble,
+.fm-app[data-moe="0"] .fm-hero::after,
+.fm-app[data-moe="0"] .fm-sticker {
+  display: none;
+}
+
+.fm-app[data-moe="0"] .mascot-photo {
+  animation: none;
+}
+
+.fm-app[data-moe="0"] .mascot-photo::after {
+  display: none;
+}
+
+.fm-app[data-moe="0"] .fm-hero h1 .fm-soft {
+  color: var(--fm-ink-2);
+}
+
+.fm-app[data-moe="2"] .fm-hero::after {
+  content: "✦";
+  position: absolute;
+  top: 4px;
+  left: 44%;
+  color: var(--fm-pink);
+  font-size: 13px;
+  animation: twinkle 3s ease-in-out infinite;
+}
+
+.fm-app[data-moe="2"] .fm-greet-spark {
+  font-size: 15px;
+  animation: twinkle 3.4s ease-in-out infinite;
+}
+
+.fm-app[data-moe="2"] .fm-brand-avatar {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--fm-pink) 12%, transparent), inset 0 1px 0 var(--fm-inset);
+}
+
+.fm-app.reduce-motion *,
+.fm-app.reduce-motion *::before,
+.fm-app.reduce-motion *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+}
+
+.fm-still .fm-card,
+.fm-still .mascot-photo,
+.fm-still .fm-greet-mascot,
+.fm-still .fm-hero-mascot {
+  animation: none !important;
+  transition: none !important;
+}
+
+.fm-app[data-theme="night"] .fm-card,
+.fm-app[data-theme="night"] .fm-stat,
+.fm-app[data-theme="night"] .fm-modal,
+.fm-app[data-theme="night"] .fm-palette {
+  box-shadow: var(--fm-shadow-xs);
+}
+
+.fm-app[data-theme="night"] .fm-brand-avatar,
+.fm-app[data-theme="night"] .fm-avatar {
+  background: linear-gradient(145deg, #4a2a3b, #3b3056);
+}
+
+.fm-app[data-theme="night"] .fm-main::before {
+  opacity: 0.2;
+}
+
+.fm-app[data-theme="night"] .fm-console {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.fm-app[data-theme="night"] .fm-type-icon {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+/* Keyframes */
+
+@keyframes fmPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.42; transform: scale(1.3); }
+}
+
+@keyframes fmSpin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes fmShimmer {
+  0% { background-position: 160% 0; }
+  100% { background-position: -60% 0; }
+}
+
+@keyframes fmCardIn {
+  from { opacity: 0; transform: translateY(7px) scale(0.995); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes fmMenuIn {
+  from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes fmToastIn {
+  from { opacity: 0; transform: translateY(10px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes fmToastOut {
+  to { opacity: 0; transform: translateY(6px) scale(0.97); }
+}
+
+@keyframes fmModalIn {
+  from { opacity: 0; transform: translateY(14px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes fmFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fmPaletteIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(-8px) scale(0.985); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+}
+
+@keyframes fmPinIn {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(0.5); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
