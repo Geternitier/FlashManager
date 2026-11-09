@@ -24,8 +24,8 @@ export const TYPE_ORDER: ServiceType[] = ["exe", "python", "node", "nginx", "scr
 export const TYPE_DEFAULTS: Record<ServiceType, { executable: string; encoding: string }> = {
   python: { executable: "python", encoding: "utf-8" },
   node: { executable: "node", encoding: "utf-8" },
-  nginx: { executable: "D:/Develop/Windows/Nginx/nginx.exe", encoding: "utf-8" },
-  exe: { executable: "D:/Tools/app.exe", encoding: "utf-8" },
+  nginx: { executable: "", encoding: "utf-8" },
+  exe: { executable: "", encoding: "utf-8" },
   script: { executable: "powershell.exe", encoding: "gbk" },
 };
 

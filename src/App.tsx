@@ -757,7 +757,6 @@ export default function App() {
       serviceType,
       executable: defaults.executable,
       encoding: defaults.encoding,
-      cwd: serviceType === "nginx" ? "D:/Develop/Windows/Nginx" : "",
       autoRestart: serviceType === "nginx" ? false : EMPTY_FORM.autoRestart,
     });
     setFormArgs(JSON.stringify(serviceType === "nginx" ? ["-c", "conf/nginx.conf"] : [], null, 2));

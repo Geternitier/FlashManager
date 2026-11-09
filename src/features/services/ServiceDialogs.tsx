@@ -3,7 +3,7 @@ import type { Dispatch, SetStateAction } from "react";
 import { Mascot } from "../../components/Mascot";
 import { ModalFrame } from "../../components/overlays";
 import type { ServiceConfig, ServiceType } from "../../types";
-import { TYPE_DEFAULTS, TYPE_META, TYPE_ORDER } from "./servicePresentation";
+import { TYPE_META, TYPE_ORDER } from "./servicePresentation";
 
 interface ServiceFormDialogProps {
   editingId: string | null;
@@ -117,24 +117,14 @@ export function ServiceFormDialog({
               <label htmlFor="svcExecutable">
                 启动程序 <span className="req">*</span>
               </label>
-              <div className="fm-input-row">
-                <input
-                  className="fm-input"
-                  id="svcExecutable"
-                  value={form.executable}
-                  onChange={(event) => setForm((current) => ({ ...current, executable: event.target.value }))}
-                  placeholder="python / node / D:/Tools/app.exe"
-                  autoComplete="off"
-                />
-                <button
-                  type="button"
-                  className="fm-btn fm-btn-soft"
-                  onClick={() => setForm((current) => ({ ...current, executable: TYPE_DEFAULTS[current.serviceType].executable }))}
-                >
-                  <Folder className="i" />
-                  浏览
-                </button>
-              </div>
+              <input
+                className="fm-input"
+                id="svcExecutable"
+                value={form.executable}
+                onChange={(event) => setForm((current) => ({ ...current, executable: event.target.value }))}
+                placeholder="python / node / C:/path/to/app.exe"
+                autoComplete="off"
+              />
               <span className="fm-field-hint">可以直接写 python / node，也可以填绝对路径。</span>
             </div>
             {["python", "node", "script"].includes(form.serviceType) ? (
@@ -142,29 +132,14 @@ export function ServiceFormDialog({
                 <label htmlFor="svcScript">
                   脚本文件路径 <span className="req">*</span>
                 </label>
-                <div className="fm-input-row">
-                  <input
-                    className="fm-input"
-                    id="svcScript"
-                    value={form.scriptPath ?? ""}
-                    onChange={(event) => setForm((current) => ({ ...current, scriptPath: event.target.value }))}
-                    placeholder="D:/Develop/my-service/server.py"
-                    autoComplete="off"
-                  />
-                  <button
-                    type="button"
-                    className="fm-btn fm-btn-soft"
-                    onClick={() =>
-                      setForm((current) => ({
-                        ...current,
-                        scriptPath: current.serviceType === "python" ? "D:/Develop/my-service/server.py" : current.serviceType === "node" ? "D:/Develop/my-service/index.mjs" : "D:/Develop/Tools/clean.ps1",
-                      }))
-                    }
-                  >
-                    <Folder className="i" />
-                    浏览
-                  </button>
-                </div>
+                <input
+                  className="fm-input"
+                  id="svcScript"
+                  value={form.scriptPath ?? ""}
+                  onChange={(event) => setForm((current) => ({ ...current, scriptPath: event.target.value }))}
+                  placeholder="C:/path/to/script"
+                  autoComplete="off"
+                />
                 <span className="fm-field-hint">相对路径会按工作目录解析；探测到项目里的 .venv 时会优先使用它。</span>
               </div>
             ) : null}
@@ -350,7 +325,7 @@ export function DetectServiceDialog({
                 id="detectPath"
                 value={detectPath}
                 onChange={(event) => setDetectPath(event.target.value)}
-                placeholder="D:/Develop/Deepseek/my-service"
+                placeholder="C:/path/to/my-service"
                 autoComplete="off"
               />
             </div>
